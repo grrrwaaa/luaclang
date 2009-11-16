@@ -809,7 +809,7 @@
 			children = (
 				3647CF0510AD16AE0053DB57 /* test */,
 				364002DD1091556800C4D35B /* src */,
-				36400753109156E400C4D35B /* lib_include */,
+				36400753109156E400C4D35B /* include */,
 				364002DC1091556800C4D35B /* lib_osx */,
 				0867D69AFE84028FC02AAC07 /* External Frameworks and Libraries */,
 				034768DFFF38A50411DB9C8B /* Products */,
@@ -886,7 +886,7 @@
 			path = ../src;
 			sourceTree = SOURCE_ROOT;
 		};
-		36400753109156E400C4D35B /* lib_include */ = {
+		36400753109156E400C4D35B /* include */ = {
 			isa = PBXGroup;
 			children = (
 				365B30ED109161E500DE5207 /* lauxlib.h */,
@@ -896,8 +896,8 @@
 				36400754109156E400C4D35B /* clang */,
 				3640084C109156E400C4D35B /* llvm */,
 			);
-			name = lib_include;
-			path = ../lib_include;
+			name = include;
+			path = "../llvm-2.6/include";
 			sourceTree = SOURCE_ROOT;
 		};
 		36400754109156E400C4D35B /* clang */ = {
