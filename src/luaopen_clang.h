@@ -7,6 +7,7 @@ Luaclang is released under the MIT open source license
 @see http://www.opensource.org/licenses/mit-license.php
 
 Copyright (c) 2009 Graham Wakefield
+http://code.google.com/p/luaclang/
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

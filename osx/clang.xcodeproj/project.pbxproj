@@ -67,7 +67,6 @@
 
 /* Begin PBXFileReference section */
 		360293791097C96100B09151 /* luaglue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = luaglue.h; sourceTree = "<group>"; };
-		361782F410AB5AD100DED294 /* llvmheaders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = llvmheaders.h; sourceTree = "<group>"; };
 		3617860C10AB7DFF00DED294 /* test_clang1.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_clang1.lua; sourceTree = "<group>"; };
 		36283D3A10B0F38E0082B68D /* luaclang.luadoc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = luaclang.luadoc; sourceTree = "<group>"; };
 		364002DE1091557700C4D35B /* luaopen_clang.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = luaopen_clang.h; sourceTree = "<group>"; };
@@ -879,7 +878,6 @@
 			isa = PBXGroup;
 			children = (
 				360293791097C96100B09151 /* luaglue.h */,
-				361782F410AB5AD100DED294 /* llvmheaders.h */,
 				364002DE1091557700C4D35B /* luaopen_clang.h */,
 				364002DF1091557700C4D35B /* luaopen_clang.cpp */,
 				36283D3A10B0F38E0082B68D /* luaclang.luadoc */,
@@ -1926,7 +1924,7 @@
 				LD_MAP_FILE_PATH = "";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"\"$(SRCROOT)/../lib_osx\"",
+					"\"$(SRCROOT)/../llvm-2.6/lib_osx\"",
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
@@ -1940,7 +1938,7 @@
 				PRODUCT_NAME = $PROJECT_NAME;
 				SDKROOT = macosx10.4;
 				SYMROOT = build;
-				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../lib_include\"/**";
+				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../llvm-2.6/include\"/**";
 				VALID_ARCHS = "i386 x86_64";
 			};
 			name = Debug;
@@ -1965,7 +1963,7 @@
 				LD_MAP_FILE_PATH = "";
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"\"$(SRCROOT)/../lib_osx\"",
+					"\"$(SRCROOT)/../llvm-2.6/lib_osx\"",
 				);
 				ONLY_ACTIVE_ARCH = YES;
 				OTHER_CFLAGS = (
@@ -1979,7 +1977,7 @@
 				PRODUCT_NAME = $PROJECT_NAME;
 				SDKROOT = macosx10.4;
 				SYMROOT = build;
-				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../lib_include\"/**";
+				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/../llvm-2.6/include\"/**";
 				VALID_ARCHS = "i386 x86_64";
 			};
 			name = Release;
