@@ -8,7 +8,7 @@ local number = ast.number -- an pre-defined type
 -- define some new types:
 local vec = typedef { number "x", number "y", number "z" } "vec"
 -- recursive definition:
-local quat = typedef { number "w", vec "v" } "quat"
+--local quat = typedef { number "w", vec "v" } "quat"
 
 
 
@@ -16,8 +16,8 @@ local quat = typedef { number "w", vec "v" } "quat"
 
 -- generate C code:
 local vec_src = ast.generate(ast.vec)
-local quat_src = ast.generate(ast.quat)
-local src = ast.header .. vec_src .. quat_src
+--local quat_src = ast.generate(ast.quat)
+local src = ast.header .. vec_src --.. quat_src
 print(src)
 
 
@@ -38,7 +38,8 @@ end
 local v = call("vec_new", 1, 2, 3)
 call("vec_dump", v)
 print(v)
-
+--[[
 local q = call("quat_new", 4, v)
 call("quat_dump", q)
 print(q)
+--]]
