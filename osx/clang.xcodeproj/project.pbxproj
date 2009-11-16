@@ -6,6 +6,20 @@
 	objectVersion = 45;
 	objects = {
 
+/* Begin PBXAggregateTarget section */
+		36283D2010B0F25E0082B68D /* doc */ = {
+			isa = PBXAggregateTarget;
+			buildConfigurationList = 36283D3110B0F2680082B68D /* Build configuration list for PBXAggregateTarget "doc" */;
+			buildPhases = (
+				36283D1F10B0F25E0082B68D /* ShellScript */,
+			);
+			dependencies = (
+			);
+			name = doc;
+			productName = doc;
+		};
+/* End PBXAggregateTarget section */
+
 /* Begin PBXBuildFile section */
 		364002E11091557700C4D35B /* luaopen_clang.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 364002DF1091557700C4D35B /* luaopen_clang.cpp */; };
 		36400A56109156FD00C4D35B /* libclangAnalysis.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 364009F3109156FD00C4D35B /* libclangAnalysis.a */; };
@@ -55,6 +69,7 @@
 		360293791097C96100B09151 /* luaglue.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = luaglue.h; sourceTree = "<group>"; };
 		361782F410AB5AD100DED294 /* llvmheaders.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = llvmheaders.h; sourceTree = "<group>"; };
 		3617860C10AB7DFF00DED294 /* test_clang1.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_clang1.lua; sourceTree = "<group>"; };
+		36283D3A10B0F38E0082B68D /* luaclang.luadoc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; path = luaclang.luadoc; sourceTree = "<group>"; };
 		364002DE1091557700C4D35B /* luaopen_clang.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = luaopen_clang.h; sourceTree = "<group>"; };
 		364002DF1091557700C4D35B /* luaopen_clang.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = luaopen_clang.cpp; sourceTree = "<group>"; };
 		36400757109156E400C4D35B /* LiveVariables.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = LiveVariables.h; sourceTree = "<group>"; };
@@ -867,6 +882,7 @@
 				361782F410AB5AD100DED294 /* llvmheaders.h */,
 				364002DE1091557700C4D35B /* luaopen_clang.h */,
 				364002DF1091557700C4D35B /* luaopen_clang.cpp */,
+				36283D3A10B0F38E0082B68D /* luaclang.luadoc */,
 			);
 			name = src;
 			path = ../src;
@@ -1854,9 +1870,26 @@
 			projectRoot = "";
 			targets = (
 				D2AAC0C605546C1D00DB518D /* osx */,
+				36283D2010B0F25E0082B68D /* doc */,
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		36283D1F10B0F25E0082B68D /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# shell script goes here\n\ncd ../src\n/usr/local/bin/luadoc *.luadoc -d ../doc --nofiles\n\nexit 0";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		D2AAC0C405546C1D00DB518D /* Sources */ = {
@@ -1977,6 +2010,27 @@
 			};
 			name = Release;
 		};
+		36283D2110B0F25F0082B68D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = NO;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				PRODUCT_NAME = doc;
+			};
+			name = Debug;
+		};
+		36283D2210B0F25F0082B68D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				COPY_PHASE_STRIP = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_ENABLE_FIX_AND_CONTINUE = NO;
+				PRODUCT_NAME = doc;
+				ZERO_LINK = NO;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1994,6 +2048,15 @@
 			buildConfigurations = (
 				1DEB918208733D990010E9CD /* Debug */,
 				1DEB918308733D990010E9CD /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		36283D3110B0F2680082B68D /* Build configuration list for PBXAggregateTarget "doc" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				36283D2110B0F25F0082B68D /* Debug */,
+				36283D2210B0F25F0082B68D /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
