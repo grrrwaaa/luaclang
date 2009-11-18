@@ -871,7 +871,7 @@
 				36400A45109156FD00C4D35B /* libplugin_llvmc_Clang.a */,
 			);
 			name = lib_osx;
-			path = ../lib_osx;
+			path = "../llvm-2.6/lib_osx";
 			sourceTree = SOURCE_ROOT;
 		};
 		364002DD1091556800C4D35B /* src */ = {

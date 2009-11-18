@@ -1841,12 +1841,14 @@ int addSearchPath(lua_State * L) {
 	std::string path = luaL_checkstring(L, 1);
 	// TODO: avoid double insertions
 	default_headers.push_back(path);
+	return 0;
 }
 
 int compile(lua_State * L) {
 
 	std::string csource = luaL_checkstring(L, 1);
 	std::string srcname = luaL_optstring(L, 2, "untitled");
+	std::string isysroot = luaL_optstring(L, 2, "/Developer/SDKs/MacOSX10.4u.sdk");
 	// todo: set include search paths
 	lua_settop(L, 0);
 	
@@ -1865,8 +1867,8 @@ int compile(lua_State * L) {
 	SourceManager sm;
 	FileManager fm; 
 	HeaderSearch headers(fm);
-	InitHeaderSearch initHeaders(headers);
-	//initHeaders.AddDefaultSystemIncludePaths(lang);
+	InitHeaderSearch initHeaders(headers, true, isysroot);
+	initHeaders.AddDefaultSystemIncludePaths(lang);
 	for(int i=0; i < default_headers.size(); ++i) {
 		initHeaders.AddPath(default_headers[i], InitHeaderSearch::Angled, false, true, false);
 	}
