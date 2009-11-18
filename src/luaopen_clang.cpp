@@ -1807,6 +1807,19 @@ public:
 			case Diagnostic::Fatal:   OS << "fatal error: "; break;
 		}
 
+		const FullSourceLoc& SourceLoc = Info.getLocation();
+		int LineNum = SourceLoc.getInstantiationLineNumber();
+		int ColNum = SourceLoc.getInstantiationColumnNumber();
+		int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+		
+		std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+		OS << SourceLoc.getManager().getBufferName(SourceLoc) << " " << FileOffset << " " << LineNum << ":" << ColNum << "\n";
+		
+		char errstr[128];
+		strncpy(errstr, LocBD.first+FileOffset, 127);
+//		printf("%s\n", errstr);
+		OS << errstr;
+
 		llvm::SmallString<100> OutStr;
 		Info.FormatDiagnostic(OutStr);
 		OS.write(OutStr.begin(), OutStr.size());
@@ -1815,6 +1828,8 @@ public:
 		if (hint) {
 			OS << hint->CodeToInsert;
 		}
+		
+		OS << "\n\n";
 		
 		lua_pushfstring(L, OS.str().c_str());
 	}
