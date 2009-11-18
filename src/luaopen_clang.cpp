@@ -1848,7 +1848,10 @@ int compile(lua_State * L) {
 
 	std::string csource = luaL_checkstring(L, 1);
 	std::string srcname = luaL_optstring(L, 2, "untitled");
-	std::string isysroot = luaL_optstring(L, 2, "/Developer/SDKs/MacOSX10.4u.sdk");
+	std::string isysroot = luaL_optstring(L, 3, "/Developer/SDKs/MacOSX10.4u.sdk");
+	
+	std::string predefines = luaL_optstring(L, 4, "");
+	
 	// todo: set include search paths
 	lua_settop(L, 0);
 	
@@ -1875,6 +1878,8 @@ int compile(lua_State * L) {
 	initHeaders.Realize();
 	
 	Preprocessor pp(diags, lang, *target, sm, headers);
+	pp.setPredefines(predefines);
+	
 	
 	sm.createMainFileIDForMemBuffer(buffer);
 	
