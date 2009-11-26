@@ -63,6 +63,7 @@
 		36400AA1109156FE00C4D35B /* libLLVMX86Info.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 36400A3E109156FD00C4D35B /* libLLVMX86Info.a */; };
 		36400AA7109156FE00C4D35B /* libplugin_llvmc_Base.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 36400A44109156FD00C4D35B /* libplugin_llvmc_Base.a */; };
 		36400AA8109156FE00C4D35B /* libplugin_llvmc_Clang.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 36400A45109156FD00C4D35B /* libplugin_llvmc_Clang.a */; };
+		36A13E8D10BE63FB005837FF /* clang-cc.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 36A13E8C10BE63FB005837FF /* clang-cc.cpp */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -739,6 +740,8 @@
 		365B30EE109161E500DE5207 /* lua.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = lua.h; path = /usr/local/include/lua.h; sourceTree = "<absolute>"; };
 		365B30EF109161E500DE5207 /* luaconf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = luaconf.h; path = /usr/local/include/luaconf.h; sourceTree = "<absolute>"; };
 		365B30F0109161E500DE5207 /* lualib.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = lualib.h; path = /usr/local/include/lualib.h; sourceTree = "<absolute>"; };
+		3682E42310BF2F62009ED8B3 /* test_cc.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_cc.lua; sourceTree = "<group>"; };
+		36A13E8C10BE63FB005837FF /* clang-cc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = "clang-cc.cpp"; sourceTree = "<group>"; };
 		36DED56D10AE0D8800686F06 /* test_ast.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_ast.lua; sourceTree = "<group>"; };
 		36DED57610AE0DB300686F06 /* ast.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = ast.lua; sourceTree = "<group>"; };
 		D2AAC0C705546C1D00DB518D /* clang.so */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.dylib"; includeInIndex = 0; path = clang.so; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -880,6 +883,7 @@
 				360293791097C96100B09151 /* luaglue.h */,
 				364002DE1091557700C4D35B /* luaopen_clang.h */,
 				364002DF1091557700C4D35B /* luaopen_clang.cpp */,
+				36A13E8C10BE63FB005837FF /* clang-cc.cpp */,
 				36283D3A10B0F38E0082B68D /* luaclang.luadoc */,
 			);
 			name = src;
@@ -1830,6 +1834,7 @@
 				3647CF1710AD172D0053DB57 /* test_vec.lua */,
 				36DED56D10AE0D8800686F06 /* test_ast.lua */,
 				36DED57610AE0DB300686F06 /* ast.lua */,
+				3682E42310BF2F62009ED8B3 /* test_cc.lua */,
 			);
 			name = test;
 			path = ../test;
@@ -1895,6 +1900,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				364002E11091557700C4D35B /* luaopen_clang.cpp in Sources */,
+				36A13E8D10BE63FB005837FF /* clang-cc.cpp in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -94,6 +94,9 @@ THE SOFTWARE.
 #include "luaglue.h"
 #include "luaopen_clang.h"
 
+//#define ddebug(...) 
+#define ddebug(...) printf(__VA_ARGS__)
+
 extern llvm::ExecutionEngine * getEE();
 extern void registerWithJIT(lua_State * L, llvm::Module * module);
 
@@ -669,7 +672,7 @@ static int type_eq(lua_State * L) {
 	//lua::dump(L, "eq");
 	const Type * a = Glue<Type>::checkto(L, 1);
 	const Type * b = Glue<Type>::checkto(L, 2);
-	//printf("%p %p\n", a, b);
+	//ddebug("%p %p\n", a, b);
 	lua_pushboolean(L, a == b);
 	return 1;
 }
@@ -1371,7 +1374,7 @@ static int createRet(lua_State * L) {
 		if (v == NULL)
 			return luaL_error(L, "function requires a return value");
 		if (retType->getTypeID() != v->getType()->getTypeID()) {
-			//printf("%i %i\n", retType->getTypeID(), v->getType()->getTypeID());
+			//ddebug("%i %i\n", retType->getTypeID(), v->getType()->getTypeID());
 			luaL_error(L, "return type mismatch");
 		}
 		return Glue<Instruction>::push(L, b->CreateRet(v));
@@ -1827,7 +1830,7 @@ public:
 		
 		char errstr[128];
 		strncpy(errstr, LocBD.first+FileOffset, 127);
-//		printf("%s\n", errstr);
+//		ddebug("%s\n", errstr);
 		OS << errstr;
 
 		llvm::SmallString<100> OutStr;
@@ -1858,7 +1861,7 @@ int addSearchPath(lua_State * L) {
 class Compiler {
 public:
 	Compiler() {}
-	~Compiler() {printf("~Compiler\n");}
+	~Compiler() {ddebug("~Compiler\n");}
 	
 	
 	static int compile(lua_State *L) {
@@ -2014,59 +2017,60 @@ int getLuaState(lua_State * L) {
 
 
 extern CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource);
+
 int lua_clang_cc(lua_State *L) {
-	if(lua_istable(L, 1) && lua_type(L, 2) == LUA_TSTRING) {
-		std::vector<std::string> args;
-		int len = lua_objlen(L, 1);
-		for(int i=1; i <= len; i++) {
-			lua_rawgeti(L, 1, i);
-			const char *s = lua_tostring(L, -1);
-			args.push_back(std::string(s));
-			lua_pop(L, 1);
-		}
+	luaL_argcheck(L, lua_type(L,1)==LUA_TTABLE, 1, "compiler flags table");
+	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
 		
-		const char *argv[256];
-		for(int i=0; i < args.size(); i++) {
-			argv[i] = args[i].c_str();
-//			printf("argv[%d]: %s\n", i, argv[i]);
-		}
-		
-		std::string csource = luaL_checkstring(L, 2);
-		
-		// Diagnostics (warning/error handling)
+	std::vector<std::string> args;
+	int len = lua_objlen(L, 1);
+	for(int i=1; i <= len; i++) {
+		lua_rawgeti(L, 1, i);
+		const char *s = lua_tostring(L, -1);
+		args.push_back(std::string(s));
+		lua_pop(L, 1);
+	}
+	
+	const char *argv[256];
+	for(int i=0; i < args.size(); i++) {
+		argv[i] = args[i].c_str();
+			ddebug("argv[%d]: %s\n", i, argv[i]);
+	}
+	
+	std::string csource = lua_tostring(L, 2);
+	
+	// Diagnostics (warning/error handling)
 //		LuaDiagnosticPrinter client(L);
 //		Diagnostic diags(&client);
-		std::string srcname = luaL_optstring(L, 3, "untitled");
-		
+	std::string srcname = luaL_optstring(L, 3, "untitled");
+	
 //		CompileOptions copts; // e.g. optimizations
 //		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
-		
-		CodeGenerator * codegen = clang_cc_main(args.size(), (char **)argv, srcname.data(), csource.data());
-		Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
-		if(cmodule) {
-//			printf("Print functions\n");
-			Module::FunctionListType &fl = cmodule->getFunctionList();
-			for(Module::FunctionListType::iterator it = fl.begin(); it != fl.end(); ++it) {
-//				printf("F: %s\n", it->getName().data());
-			}
-		
-			// link with other module? JIT?
-			//lua_pushboolean(L, true);
-			Glue<Module>::push(L, cmodule);
-		} else {
-			lua_pushboolean(L, false);
+	
+	CodeGenerator * codegen = clang_cc_main(args.size(), (char **)argv, srcname.data(), csource.data());
+	
+	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
+	if(cmodule) {
+//			ddebug("Print functions\n");
+		Module::FunctionListType &fl = cmodule->getFunctionList();
+		for(Module::FunctionListType::iterator it = fl.begin(); it != fl.end(); ++it) {
+//				ddebug("F: %s\n", it->getName().data());
+		}
+	
+		// link with other module? JIT?
+		//lua_pushboolean(L, true);
+		Glue<Module>::push(L, cmodule);
+	} else {
+		lua_pushboolean(L, false);
 //			lua_insert(L, 1);
-			// diagnose?
+		// diagnose?
 //			unsigned count = diags.getNumDiagnostics();
 //			return count+1;
-			return 1;
-		}
-		
-		delete codegen;
 		return 1;
 	}
 	
-	return 0;
+	delete codegen;
+	return 1;
 }
 
 
@@ -2095,7 +2099,7 @@ int luaopen_clang(lua_State * L) {
 		{NULL, NULL},
 	};
 	luaL_register(L, libname, lib);
-	printf("libname: %s\n", libname);
+	//ddebug("libname: %s\n", libname);
 	
 	//lua::dump(L, "luaopen_clang lib");
 	

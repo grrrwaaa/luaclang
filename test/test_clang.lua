@@ -35,5 +35,5 @@ typedef char* __builtin_va_list;
 -- chose test to run:
 --dofile(path .. "test_clang1.lua")
 --dofile(path .. "test_vec.lua")
-
-dofile(path .. "test_ast.lua")
+--dofile(path .. "test_ast.lua")
+dofile(path .. "test_cc.lua")

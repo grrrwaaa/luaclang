@@ -2191,14 +2191,9 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   llvm::PrettyStackTraceProgram X(argc, argv);
   llvm::LLVMContext &Context = llvm::getGlobalContext();
   
-/*  printf("clang_cc_main:\n");
-  for(int i=0; i < argc; i++) {
-	printf("%d %s\n", i, argv[i]);
-  }
- */ 
-  
   llvm::cl::ParseCommandLineOptions(argc, argv,
                               "LLVM 'Clang' Compiler: http://clang.llvm.org\n");
+  
   
   
   TargetCPU.assign("yonah");
