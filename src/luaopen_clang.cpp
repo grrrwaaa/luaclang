@@ -1863,12 +1863,40 @@ public:
 	Compiler() {}
 	~Compiler() {ddebug("~Compiler\n");}
 	
+	char Oflag;						// -O0 .. -O4 
+	std::set<std::string> iflags;	// differentiate -i or -I ? and -F ?
+//	std::set<std::string> lflags;	// does a linker make sense for JIT ?
+	std::set<std::string> dflags;	// -D
+	std::set<std::string> wflags;	// -W
+//	std::set<std::string> mflags;	// -m
+//	std::set<std::string> fflags;	// -f
+//	// other flags: -x (language), -std (language standard), etc., -arch, -g (debug info), 
 	
 	static int compile(lua_State *L) {
 		return 0;
 	}
-
-	std::set<std::string> headers;
+	
+	static int include(lua_State * L) {	
+		Compiler * self = Glue<Compiler>::checkto(L, 1);
+		std::string str = luaL_checkstring(L, 1);
+		self->iflags.insert(str);
+		return 0;
+	}
+	
+	static int define(lua_State * L) {	
+		Compiler * self = Glue<Compiler>::checkto(L, 1);
+		std::string str = luaL_checkstring(L, 1);
+		self->dflags.insert(str);
+		return 0;
+	}
+	
+	static int warning(lua_State * L) {	
+		Compiler * self = Glue<Compiler>::checkto(L, 1);
+		std::string str = luaL_checkstring(L, 1);
+		self->wflags.insert(str);
+		return 0;
+	}
+	
 };
 
 template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
@@ -1876,9 +1904,13 @@ template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
 template <> Compiler * Glue<Compiler>::usr_new(lua_State * L) {
 	return new Compiler();
 }
-
+template <> void Glue<Compiler>::usr_gc(lua_State * L, Compiler * self) {
+	delete self;
+}
 template <> void Glue<Compiler>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, Compiler::compile); lua_setfield(L, -2, "compile");
+	lua_pushcfunction(L, Compiler::include);		lua_setfield(L, -2, "include");
+	lua_pushcfunction(L, Compiler::warning);		lua_setfield(L, -2, "warning");
+	lua_pushcfunction(L, Compiler::define);			lua_setfield(L, -2, "define");
 }
 
 

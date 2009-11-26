@@ -2194,8 +2194,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   llvm::cl::ParseCommandLineOptions(argc, argv,
                               "LLVM 'Clang' Compiler: http://clang.llvm.org\n");
   
-  
-  
   TargetCPU.assign("yonah");
   
   llvm::InitializeAllTargets();
