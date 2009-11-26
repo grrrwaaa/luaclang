@@ -89,6 +89,7 @@ THE SOFTWARE.
 #include <vector>
 
 #include <list>
+#include <set>
 
 #include "luaglue.h"
 #include "luaopen_clang.h"
@@ -1780,6 +1781,15 @@ int readBitcodeFile(lua_State * L) {
 	Glue<Module>::push(L, bitcodemodule);
 	return 1;
 }
+/*
+static unsigned GetFID(const FIDMap& FIDs, const SourceManager &SM, SourceLocation L)
+{
+  FileID FID = SM.getFileID(SM.getInstantiationLoc(L));
+  FIDMap::const_iterator I = FIDs.find(FID);
+  assert(I != FIDs.end());
+  return I->second;
+}
+*/
 
 
 #pragma mark Clang
@@ -1844,6 +1854,31 @@ int addSearchPath(lua_State * L) {
 	return 0;
 }
 
+
+class Compiler {
+public:
+	Compiler() {}
+	~Compiler() {printf("~Compiler\n");}
+	
+	
+	static int compile(lua_State *L) {
+		return 0;
+	}
+
+	std::set<std::string> headers;
+};
+
+template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
+
+template <> Compiler * Glue<Compiler>::usr_new(lua_State * L) {
+	return new Compiler();
+}
+
+template <> void Glue<Compiler>::usr_mt(lua_State * L) {
+	lua_pushcfunction(L, Compiler::compile); lua_setfield(L, -2, "compile");
+}
+
+
 int compile(lua_State * L) {
 
 	std::string csource = luaL_checkstring(L, 1);
@@ -1855,32 +1890,90 @@ int compile(lua_State * L) {
 	// todo: set include search paths
 	lua_settop(L, 0);
 	
-	MemoryBuffer * buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
-	if (!buffer) {
+	// Souce to compile
+	MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
+	if(!buffer) {
 		luaL_error(L, "couldn't load %s\n", srcname.c_str());
 		return 0;
 	}
 	
-	LangOptions lang;
-	TargetInfo * target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
-
+	// Diagnostics (warning/error handling)
 	LuaDiagnosticPrinter client(L);
 	Diagnostic diags(&client);
 	
-	SourceManager sm;
-	FileManager fm; 
+	
+//------------------------------------------------------
+// Platform info
+	// --mcpu=yonah
+//	std::string TargetCPU("yonah");	// to derive via Clang/LLVM API
+//	llvm::StringMap<bool> Features;
+	TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
+//	target->getDefaultFeatures(TargetCPU, Features);
+	
+	
+
+	
+	LangOptions lang;
+	//	lang.setVisibilityMode(SymbolVisibility) Needed???
+	
+	// from clang-cc:684
+	// Allow the target to set the default the langauge options as it sees fit.
+	target->getDefaultLangOptions(lang);
+
+	// Pass the map of target features to the target for validation and
+	// processing.
+//	target->HandleTargetFeatures(Features);
+	
+	
+	lang.C99 = 1;
+    lang.HexFloats = 1;
+	lang.BCPLComment = 1;  // Only for C99/C++.
+	lang.Digraphs = 1;     // C94, C99, C++.
+	// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
+	lang.GNUMode = 1;
+	lang.ImplicitInt = 0;
+	lang.DollarIdents = 1;
+	lang.WritableStrings = 0;
+	lang.Exceptions = 0;
+	lang.Rtti = 0;
+	lang.Bool = 0;
+	lang.MathErrno = 0;
+	lang.InstantiationDepth = 99;
+	lang.OptimizeSize = 0;
+	lang.PICLevel = 1;
+	lang.GNUInline = 0;
+	lang.NoInline = 1;
+	lang.Static = 0;
+
+//------------------------------------------------------
+// Search paths
+	FileManager fm;
 	HeaderSearch headers(fm);
 	InitHeaderSearch initHeaders(headers, true, isysroot);
-	initHeaders.AddDefaultSystemIncludePaths(lang);
+	
 	for(int i=0; i < default_headers.size(); ++i) {
 		initHeaders.AddPath(default_headers[i], InitHeaderSearch::Angled, false, true, false);
 	}
+	
+	/// CLANG HEADERS:
+//	Init.AddPath(MainExecutablePath.c_str(), InitHeaderSearch::System,
+//				false, false, false, true /*ignore sysroot*/);
+	
+	// Add system search paths
+	initHeaders.AddDefaultSystemIncludePaths(lang);
 	initHeaders.Realize();
 	
+	
+//------------------------------------------------------
+// Preprocessor 
+
+	SourceManager sm;
 	Preprocessor pp(diags, lang, *target, sm, headers);
 	pp.setPredefines(predefines);
 	
-	
+
+//------------------------------------------------------
+// Source compilation
 	sm.createMainFileIDForMemBuffer(buffer);
 	
 	IdentifierTable idents(lang);
@@ -1919,6 +2012,64 @@ int getLuaState(lua_State * L) {
 	return 1;
 }
 
+
+extern CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource);
+int lua_clang_cc(lua_State *L) {
+	if(lua_istable(L, 1) && lua_type(L, 2) == LUA_TSTRING) {
+		std::vector<std::string> args;
+		int len = lua_objlen(L, 1);
+		for(int i=1; i <= len; i++) {
+			lua_rawgeti(L, 1, i);
+			const char *s = lua_tostring(L, -1);
+			args.push_back(std::string(s));
+			lua_pop(L, 1);
+		}
+		
+		const char *argv[256];
+		for(int i=0; i < args.size(); i++) {
+			argv[i] = args[i].c_str();
+//			printf("argv[%d]: %s\n", i, argv[i]);
+		}
+		
+		std::string csource = luaL_checkstring(L, 2);
+		
+		// Diagnostics (warning/error handling)
+//		LuaDiagnosticPrinter client(L);
+//		Diagnostic diags(&client);
+		std::string srcname = luaL_optstring(L, 3, "untitled");
+		
+//		CompileOptions copts; // e.g. optimizations
+//		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
+		
+		CodeGenerator * codegen = clang_cc_main(args.size(), (char **)argv, srcname.data(), csource.data());
+		Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
+		if(cmodule) {
+//			printf("Print functions\n");
+			Module::FunctionListType &fl = cmodule->getFunctionList();
+			for(Module::FunctionListType::iterator it = fl.begin(); it != fl.end(); ++it) {
+//				printf("F: %s\n", it->getName().data());
+			}
+		
+			// link with other module? JIT?
+			//lua_pushboolean(L, true);
+			Glue<Module>::push(L, cmodule);
+		} else {
+			lua_pushboolean(L, false);
+//			lua_insert(L, 1);
+			// diagnose?
+//			unsigned count = diags.getNumDiagnostics();
+//			return count+1;
+			return 1;
+		}
+		
+		delete codegen;
+		return 1;
+	}
+	
+	return 0;
+}
+
+
 int luaopen_clang(lua_State * L) {
 
 	// too damn useful to not have around:
@@ -1939,10 +2090,12 @@ int luaopen_clang(lua_State * L) {
 		{"compile", compile},
 		
 		{"getLuaState", getLuaState},
+		
+		{"cc", lua_clang_cc},
 		{NULL, NULL},
 	};
 	luaL_register(L, libname, lib);
-	
+	printf("libname: %s\n", libname);
 	
 	//lua::dump(L, "luaopen_clang lib");
 	
@@ -1971,6 +2124,7 @@ int luaopen_clang(lua_State * L) {
 	Glue<IRBuilder<> >::define(L);			Glue<llvm::GlobalVariable>::register_ctor(L);
 	Glue<ExecutionEngine>::define(L);		Glue<llvm::ExecutionEngine>::register_table(L);
 	
+	Glue<Compiler>::define(L);				Glue<Compiler>::register_table(L);
 	
 	//lua::dump(L, "luaopen_clang defines");
 	
