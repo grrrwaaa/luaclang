@@ -1873,30 +1873,143 @@ public:
 //	// other flags: -x (language), -std (language standard), etc., -arch, -g (debug info), 
 	
 	static int compile(lua_State *L) {
+		Compiler *self = Glue<Compiler>::checkto(L, 1);
+		if(self) {
+			std::string csource = luaL_checkstring(L, 2);
+			std::string srcname = luaL_optstring(L, 3, "untitled");
+			std::string predefines = luaL_optstring(L, 4, "");
+			std::string isysroot = luaL_optstring(L, 5, "/Developer/SDKs/MacOSX10.4u.sdk");
+			
+			
+			// todo: set include search paths
+			lua_settop(L, 0);
+			
+			// Souce to compile
+			MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
+			if(!buffer) {
+				luaL_error(L, "couldn't load %s\n", srcname.c_str());
+				return 0;
+			}
+			
+			// Diagnostics (warning/error handling)
+			LuaDiagnosticPrinter client(L);
+			Diagnostic diags(&client);
+			
+			
+		//------------------------------------------------------
+		// Platform info
+			TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
+			
+			LangOptions lang;
+
+			// from clang-cc:684
+			// Allow the target to set the default the langauge options as it sees fit.
+			target->getDefaultLangOptions(lang);
+			
+			lang.C99 = 1;
+			lang.HexFloats = 1;
+			lang.BCPLComment = 1;  // Only for C99/C++.
+			lang.Digraphs = 1;     // C94, C99, C++.
+			// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
+			lang.GNUMode = 1;
+			lang.ImplicitInt = 0;
+			lang.DollarIdents = 1;
+			lang.WritableStrings = 0;
+			lang.Exceptions = 0;
+			lang.Rtti = 0;
+			lang.Bool = 0;
+			lang.MathErrno = 0;
+			lang.InstantiationDepth = 99;
+			lang.OptimizeSize = 0;
+			lang.PICLevel = 1;
+			lang.GNUInline = 0;
+			lang.NoInline = 1;
+			lang.Static = 0;
+
+		//------------------------------------------------------
+		// Search paths
+			FileManager fm;
+			HeaderSearch headers(fm);
+			InitHeaderSearch initHeaders(headers, true, isysroot);
+			for(std::set<std::string>::iterator it = self->iflags.begin(); it != self->iflags.end(); ++it) {
+				initHeaders.AddPath(*it, InitHeaderSearch::Angled, false, true, false);
+			}
+		
+				
+			// Add system search paths
+			initHeaders.AddDefaultSystemIncludePaths(lang);
+			initHeaders.Realize();
+			
+			
+		//------------------------------------------------------
+		// Preprocessor 
+
+			SourceManager sm;
+			Preprocessor pp(diags, lang, *target, sm, headers);
+			pp.setPredefines(predefines);
+			
+
+		//------------------------------------------------------
+		// Source compilation
+			sm.createMainFileIDForMemBuffer(buffer);
+			
+			IdentifierTable idents(lang);
+			SelectorTable selects;
+			Builtin::Context builtin(*target);
+			builtin.InitializeBuiltins(idents);
+			ASTContext context(lang, sm, *target, idents, selects, builtin);
+			CompileOptions copts; // e.g. optimizations
+			CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
+			
+			ParseAST(pp, codegen, context, false); // last flag is verbose statist
+			Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
+			if (cmodule) {
+				// link with other module? JIT?
+				lua_pushboolean(L, true);
+				Glue<Module>::push(L, cmodule);
+				
+				delete codegen;
+				delete target;
+			
+				return 2;
+			} else {
+				lua_pushboolean(L, false);
+				lua_insert(L, 1);
+				// diagnose?
+				unsigned count = diags.getNumDiagnostics();
+				
+				delete codegen;
+				delete target;
+				
+				return count+1;
+			}
+		}
+		else {
+			luaL_error(L, "Compiler.compile: invalid object or arguments");
+		}
 		return 0;
 	}
 	
 	static int include(lua_State * L) {	
 		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 1);
+		std::string str = luaL_checkstring(L, 2);
 		self->iflags.insert(str);
 		return 0;
 	}
 	
 	static int define(lua_State * L) {	
 		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 1);
+		std::string str = luaL_checkstring(L, 2);
 		self->dflags.insert(str);
 		return 0;
 	}
 	
 	static int warning(lua_State * L) {	
 		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 1);
+		std::string str = luaL_checkstring(L, 2);
 		self->wflags.insert(str);
 		return 0;
 	}
-	
 };
 
 template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
@@ -1908,6 +2021,7 @@ template <> void Glue<Compiler>::usr_gc(lua_State * L, Compiler * self) {
 	delete self;
 }
 template <> void Glue<Compiler>::usr_mt(lua_State * L) {
+	lua_pushcfunction(L, Compiler::compile);		lua_setfield(L, -2, "compile");
 	lua_pushcfunction(L, Compiler::include);		lua_setfield(L, -2, "include");
 	lua_pushcfunction(L, Compiler::warning);		lua_setfield(L, -2, "warning");
 	lua_pushcfunction(L, Compiler::define);			lua_setfield(L, -2, "define");
@@ -1939,27 +2053,13 @@ int compile(lua_State * L) {
 	
 //------------------------------------------------------
 // Platform info
-	// --mcpu=yonah
-//	std::string TargetCPU("yonah");	// to derive via Clang/LLVM API
-//	llvm::StringMap<bool> Features;
 	TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
-//	target->getDefaultFeatures(TargetCPU, Features);
-	
-	
 
-	
 	LangOptions lang;
-	//	lang.setVisibilityMode(SymbolVisibility) Needed???
-	
+
 	// from clang-cc:684
 	// Allow the target to set the default the langauge options as it sees fit.
 	target->getDefaultLangOptions(lang);
-
-	// Pass the map of target features to the target for validation and
-	// processing.
-//	target->HandleTargetFeatures(Features);
-	
-	
 	lang.C99 = 1;
     lang.HexFloats = 1;
 	lang.BCPLComment = 1;  // Only for C99/C++.
@@ -2131,7 +2231,6 @@ int luaopen_clang(lua_State * L) {
 		{NULL, NULL},
 	};
 	luaL_register(L, libname, lib);
-	//ddebug("libname: %s\n", libname);
 	
 	//lua::dump(L, "luaopen_clang lib");
 	
@@ -2160,7 +2259,7 @@ int luaopen_clang(lua_State * L) {
 	Glue<IRBuilder<> >::define(L);			Glue<llvm::GlobalVariable>::register_ctor(L);
 	Glue<ExecutionEngine>::define(L);		Glue<llvm::ExecutionEngine>::register_table(L);
 	
-	Glue<Compiler>::define(L);				Glue<Compiler>::register_table(L);
+	Glue<Compiler>::define(L);				Glue<Compiler>::register_ctor(L);
 	
 	//lua::dump(L, "luaopen_clang defines");
 	
