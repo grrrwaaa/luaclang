@@ -1399,9 +1399,14 @@ static llvm::cl::opt<bool>
 GenerateDebugInfo("g",
                   llvm::cl::desc("Generate source level debug information"));
 
+/*
 static llvm::cl::opt<std::string>
 TargetCPU("mcpu",
          llvm::cl::desc("Target a specific cpu type (-mcpu=help for details)"));
+*/
+
+std::string TargetCPU;
+
 
 static llvm::cl::list<std::string>
 TargetFeatures("target-feature", llvm::cl::desc("Target specific attributes"));
@@ -1427,7 +1432,7 @@ static void ComputeFeatureMap(TargetInfo *Target,
 
 //	printf("ComputeFeatureMap\n");
 	
-	std::string& CPU = TargetCPU;
+//	std::string& CPU = TargetCPU;
 //	printf("CPU: %s\n", CPU.c_str());
 
   // Initialize the feature map based on the target.
@@ -2179,7 +2184,7 @@ InputFilenames(llvm::cl::Positional, llvm::cl::desc("<input files>"));
 static void LLVMErrorHandler(void *UserData, const std::string &Message) {
   Diagnostic &Diags = *static_cast<Diagnostic*>(UserData);
 
-	printf("LLVMErrorHandler\n");
+//	printf("LLVMErrorHandler\n");
   Diags.Report(FullSourceLoc(), diag::err_fe_error_backend) << Message;
 
   // We cannot recover from llvm errors.
@@ -2190,6 +2195,11 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   llvm::sys::PrintStackTraceOnErrorSignal();
   llvm::PrettyStackTraceProgram X(argc, argv);
   llvm::LLVMContext &Context = llvm::getGlobalContext();
+  
+  
+  for(int i=0; i < argc; i++) {
+//	printf("%d: %s\n", i, argv[i]);
+  }
   
   llvm::cl::ParseCommandLineOptions(argc, argv,
                               "LLVM 'Clang' Compiler: http://clang.llvm.org\n");
@@ -2213,10 +2223,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   // If no input was specified, read from stdin.
   if (InputFilenames.empty())
     InputFilenames.push_back("-");
-	
-	
-	
-	
 	
 	
 
@@ -2323,8 +2329,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
 
   for (unsigned i = 0, e = InputFilenames.size(); i != e; ++i) {
     const std::string &InFile = InputFilenames[i];
-    
-	
 	
     /// Create a SourceManager object.  This tracks and owns all the file
     /// buffers allocated to a translation unit.
@@ -2352,7 +2356,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     
     
     InitializeIncludePaths(argv[0], HeaderInfo, FileMgr, LangInfo);
-    
+
     // Set up the preprocessor with these options.
     DriverPreprocessorFactory PPFactory(Diags, LangInfo, *Target,
                                         *SourceMgr.get(), HeaderInfo);
@@ -2373,8 +2377,8 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
       }
       std::string ErrStr;
       DependencyOS =
-          new llvm::raw_fd_ostream(DependencyFile.c_str(), false,
-                                   /*Force=*/true, ErrStr);
+          new llvm::raw_fd_ostream(DependencyFile.c_str(), false, true, ErrStr);
+		  
       if (!ErrStr.empty()) {
         // FIXME: Use a proper diagnostic
         llvm::cerr << "unable to open dependency file: " + ErrStr;
@@ -2400,12 +2404,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     if (!HTMLDiag.empty())
       ((PathDiagnosticClient*)DiagClient.get())->SetPreprocessor(PP.get());
 
-/*
-	printf("FEATURES:\n");
-	for(llvm::StringMap<bool>::iterator it = Features.begin(); it != Features.end(); ++it) {
-		printf("%s: %s\n", it->getKey().data(), it->second ? "true" : "false");
-	}
-*/
     // Process the source file.
     ProcessInputFile(*PP, PPFactory, InFile, ProgAction, Features, Context, srcname, csource, codegen);
     

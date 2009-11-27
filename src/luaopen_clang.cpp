@@ -94,8 +94,8 @@ THE SOFTWARE.
 #include "luaglue.h"
 #include "luaopen_clang.h"
 
-//#define ddebug(...) 
-#define ddebug(...) printf(__VA_ARGS__)
+#define ddebug(...) 
+//#define ddebug(...) printf(__VA_ARGS__)
 
 extern llvm::ExecutionEngine * getEE();
 extern void registerWithJIT(lua_State * L, llvm::Module * module);
@@ -2180,7 +2180,7 @@ int lua_clang_cc(lua_State *L) {
 //		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
 	
 	CodeGenerator * codegen = clang_cc_main(args.size(), (char **)argv, srcname.data(), csource.data());
-	
+	if(!codegen) return 0;
 	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 	if(cmodule) {
 //			ddebug("Print functions\n");
