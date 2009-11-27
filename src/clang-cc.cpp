@@ -2215,14 +2215,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   if (Verbose)
     fprintf(stderr, "clang-cc version 1.0 based upon " PACKAGE_STRING
             " hosted on " LLVM_HOSTTRIPLE "\n");
-  
-  
-  
-  
-  
-  // If no input was specified, read from stdin.
-//  if (InputFilenames.empty())
-//    InputFilenames.push_back("-");
 	
 	
 
@@ -2232,10 +2224,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   if (VerifyDiagnostics) {
     // When checking diagnostics, just buffer them up.
     DiagClient.reset(new TextDiagnosticBuffer());
-/*    if (InputFilenames.size() != 1) {
-      fprintf(stderr, "-verify only works on single input files for now.\n");
-      return NULL;
-    }*/
     if (!HTMLDiag.empty()) {
       fprintf(stderr, "-verify and -html-diags don't work together\n");
       return NULL;
@@ -2326,9 +2314,8 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   ComputeFeatureMap(Target.get(), Features);
 
 
-
-//  for (unsigned i = 0, e = InputFilenames.size(); i != e; ++i) {
- //   const std::string &InFile = InputFilenames[i];
+	// TODO: Remove
+	// dummy file name for LangKind derivation 
 	std::string InFile("test.c");
 	
     /// Create a SourceManager object.  This tracks and owns all the file
@@ -2393,7 +2380,6 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     }
 
     if (ImplicitIncludePCH.empty()) {
-//		printf("if (InitializeSourceManager(*PP.get(), InFile, srcname, csource))\n");
 		if (InitializeSourceManager(*PP.get(), InFile, srcname, csource))
 			return NULL;
     
@@ -2410,7 +2396,10 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     
     HeaderInfo.ClearFileInfo();
     DiagClient->setLangOptions(0);
-//  }
+	
+	
+	
+	
 
   if (!NoCaretDiagnostics)
     if (unsigned NumDiagnostics = Diags.getNumDiagnostics())
