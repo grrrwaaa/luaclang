@@ -1006,7 +1006,7 @@ static bool InitializeSourceManager(Preprocessor &PP,
 									const char *csource) {
   // Figure out where to get and map in the main file.
   SourceManager &SourceMgr = PP.getSourceManager();
-  FileManager &FileMgr = PP.getFileManager();
+//  FileManager &FileMgr = PP.getFileManager();
 
   if (EmptyInputOnly) {
  //if(true) {
@@ -2221,8 +2221,8 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   
   
   // If no input was specified, read from stdin.
-  if (InputFilenames.empty())
-    InputFilenames.push_back("-");
+//  if (InputFilenames.empty())
+//    InputFilenames.push_back("-");
 	
 	
 
@@ -2232,10 +2232,10 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
   if (VerifyDiagnostics) {
     // When checking diagnostics, just buffer them up.
     DiagClient.reset(new TextDiagnosticBuffer());
-    if (InputFilenames.size() != 1) {
+/*    if (InputFilenames.size() != 1) {
       fprintf(stderr, "-verify only works on single input files for now.\n");
       return NULL;
-    }
+    }*/
     if (!HTMLDiag.empty()) {
       fprintf(stderr, "-verify and -html-diags don't work together\n");
       return NULL;
@@ -2327,8 +2327,9 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
 
 
 
-  for (unsigned i = 0, e = InputFilenames.size(); i != e; ++i) {
-    const std::string &InFile = InputFilenames[i];
+//  for (unsigned i = 0, e = InputFilenames.size(); i != e; ++i) {
+ //   const std::string &InFile = InputFilenames[i];
+	std::string InFile("test.c");
 	
     /// Create a SourceManager object.  This tracks and owns all the file
     /// buffers allocated to a translation unit.
@@ -2364,7 +2365,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     llvm::OwningPtr<Preprocessor> PP(PPFactory.CreatePreprocessor());
           
     if (!PP)
-      continue;
+		return NULL;
 
     // Handle generating dependencies, if requested
     if (!DependencyFile.empty()) {
@@ -2373,7 +2374,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
         // FIXME: Use a proper diagnostic
         llvm::cerr << "-dependency-file requires at least one -MT option\n";
         HadErrors = true;
-        continue;
+        return NULL;
       }
       std::string ErrStr;
       DependencyOS =
@@ -2383,7 +2384,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
         // FIXME: Use a proper diagnostic
         llvm::cerr << "unable to open dependency file: " + ErrStr;
         HadErrors = true;
-        continue;
+        return NULL;
       }
 
       AttachDependencyFileGen(PP.get(), DependencyOS, DependencyTargets,
@@ -2394,7 +2395,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     if (ImplicitIncludePCH.empty()) {
 //		printf("if (InitializeSourceManager(*PP.get(), InFile, srcname, csource))\n");
 		if (InitializeSourceManager(*PP.get(), InFile, srcname, csource))
-			continue;
+			return NULL;
     
       // Initialize builtin info.
       PP->getBuiltinInfo().InitializeBuiltins(PP->getIdentifierTable(),
@@ -2409,7 +2410,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
     
     HeaderInfo.ClearFileInfo();
     DiagClient->setLangOptions(0);
-  }
+//  }
 
   if (!NoCaretDiagnostics)
     if (unsigned NumDiagnostics = Diags.getNumDiagnostics())
