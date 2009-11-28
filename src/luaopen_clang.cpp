@@ -59,6 +59,7 @@ THE SOFTWARE.
 #include "llvm/ExecutionEngine/ExecutionEngine.h"
 #include "llvm/ExecutionEngine/GenericValue.h"
 #include "llvm/ExecutionEngine/JIT.h"
+#include "llvm/ExecutionEngine/JITEventListener.h"
 #include "llvm/Linker.h"
 #include "llvm/Module.h"
 #include "llvm/ModuleProvider.h"
@@ -500,6 +501,17 @@ int moduleprovider_optimize(lua_State * L) {
 	return 0;
 }
 
+int moduleprovider_functions(lua_State * L) {
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	lua_newtable(L);
+	for (Module::iterator i = M->begin(), e = M->end(); i != e; ++i) {
+		lua_pushstring(L, i->getName().data());
+		Glue<Function>::push(L, i);
+		lua_rawset(L, -3);
+	}
+	return 1;
+}
+
 template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
 	lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
 	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
@@ -509,6 +521,7 @@ template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
 	lua_pushcfunction(L, moduleprovider_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
 	lua_pushcfunction(L, moduleprovider_link); lua_setfield(L, -2, "link");
 	lua_pushcfunction(L, moduleprovider_optimize); lua_setfield(L, -2, "optimize");
+	lua_pushcfunction(L, moduleprovider_functions); lua_setfield(L, -2, "functions");
 }
 
 /*
@@ -519,6 +532,26 @@ static ExecutionEngine * EE = 0;
 ExecutionEngine * getEE() {
 	return EE;
 }
+
+class LuaclangJITEventListener : public JITEventListener {
+	lua_State * mL;
+public:
+	LuaclangJITEventListener() : JITEventListener() {}
+	virtual ~LuaclangJITEventListener() {}
+
+	virtual void NotifyFunctionEmitted(const Function &F,
+                                     void *Code, size_t Size,
+                                     const JITEvent_EmittedFunctionDetails &Details) {
+		printf("JIT emitted Function %s at %p, size %d\n", 
+			F.getName().data(), Code, Size);
+	}
+
+	virtual void NotifyFreeingMachineCode(const Function &F, void *OldPtr) {
+		printf("JIT freed Function %s at %p %d\n", 
+			F.getName().data(), OldPtr);
+	}
+};
+static LuaclangJITEventListener gLuaclangJITEventListener;
 
 ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 	ExistingModuleProvider * emp = new ExistingModuleProvider(module);
@@ -550,6 +583,10 @@ ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 		if (EE == 0) {
 			luaL_error(L, "Failed to create Execution Engine %p: %s\n", EE, err.c_str());
 		}
+		
+		// turn this off when not debugging:
+		EE->RegisterJITEventListener(&gLuaclangJITEventListener);
+		
 		// When we ask to JIT a function, we should also JIT other
 		// functions that function depends on.  This would let us JIT in a
 		// background thread to avoid blocking the main thread during
@@ -564,6 +601,9 @@ ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 	} else {
 		EE->addModuleProvider(emp);
 	}
+	
+	// I guess we should do this:
+	module->setTargetTriple(llvm::sys::getHostTriple());
 	
 	// unladen swallow also does this:
 	module->setDataLayout(EE->getTargetData()->getStringRepresentation());
@@ -679,7 +719,7 @@ static int ee_offsetOf(lua_State * L) {
 }
 
 static int ee_call(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	if (getEE() == 0)
 		return luaL_error(L, "no execution engine");
 	Function * f;
@@ -756,7 +796,7 @@ static int ee_call(lua_State * L) {
 //}
 
 static int ee_pushluafunction(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	Function * F;
 	const char * name;
 	if (lua_isstring(L, 2)) {
@@ -911,7 +951,7 @@ static int type_eq(lua_State * L) {
 	return 1;
 }
 int type_modname(lua_State * L) {
-	Module * M = Glue<Module>::checkto(L, 1);
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	const Type * t = Glue<Type>::checkto(L, 2);
 	lua_pushstring(L, M->getTypeName(t).c_str());
 	return 1;
@@ -1416,7 +1456,7 @@ template<> const char * Glue<GlobalVariable>::usr_name() { return "GlobalVariabl
 template<> const char * Glue<GlobalVariable>::usr_supername() { return "GlobalValue"; }
 template<> int Glue<GlobalVariable>::usr_tostring(lua_State * L, GlobalVariable * u) { return llvm_print<GlobalVariable>(L, u); }
 template<> GlobalVariable * Glue<GlobalVariable>::usr_new(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	const Type * t = Glue<Type>::checkto(L, 2);
 	const char * name  = luaL_checkstring(L, 3);
 	bool isConstant = lua_toboolean(L, 4);
@@ -1468,7 +1508,7 @@ template<> const char * Glue<Function>::usr_name() { return "Function"; }
 template<> const char * Glue<Function>::usr_supername() { return "GlobalValue"; }
 template<> int Glue<Function>::usr_tostring(lua_State * L, Function * u) { return llvm_print<Function>(L, u); }
 template<> Function * Glue<Function>::usr_new(lua_State * L) {
-	Module * M = Glue<Module>::checkto(L, 1);
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	// if argument is a string, then search for a pre-existing function of that name
 	if (lua_isstring(L, 2))
 		return M->getFunction(lua_tostring(L, 2));
@@ -1811,7 +1851,7 @@ static int createIToF(lua_State * L) {
 
 static int createCall(lua_State * L) {
 	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Module * m = Glue<Module>::checkto(L, 2);	
+	Module * m = Glue<ModuleProvider>::checkto(L, 2)->getModule();	
 	// get args:
 	std::vector<Value *> args;
 	for (int i=4; i<=lua_gettop(L); i++) {
@@ -2478,6 +2518,9 @@ int lua_clang_cc(lua_State *L) {
 int luaopen_clang(lua_State * L) {
 
 	// too damn useful to not have around:
+	llvm::InitializeAllTargetInfos();
+	llvm::InitializeAllTargets();
+	llvm::InitializeAllAsmPrinters();
 	if (llvm::InitializeNativeTarget()) 
 		luaL_error(L, "InitializeNativeTarget failure");
 		
