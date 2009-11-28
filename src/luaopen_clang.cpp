@@ -543,11 +543,11 @@ public:
                                      void *Code, size_t Size,
                                      const JITEvent_EmittedFunctionDetails &Details) {
 		printf("JIT emitted Function %s at %p, size %d\n", 
-			F.getName().data(), Code, Size);
+			F.getName().data(), Code, (int)Size);
 	}
 
 	virtual void NotifyFreeingMachineCode(const Function &F, void *OldPtr) {
-		printf("JIT freed Function %s at %p %d\n", 
+		printf("JIT freed Function %s at %p\n", 
 			F.getName().data(), OldPtr);
 	}
 };
@@ -711,7 +711,7 @@ static int ee_offsetOf(lua_State * L) {
 	const Type * t = Glue<Type>::checkto(L, 1);
 	unsigned nindices = lua_gettop(L) - 1;
 	Value * indices[nindices];
-	for (int i=0; i<nindices; i++) {
+	for (unsigned int i=0; i<nindices; i++) {
 		indices[i] = Glue<Value>::checkto(L, i+2);
 	}
 	lua_pushinteger(L, td->getIndexedOffset(t, indices, nindices));
@@ -738,7 +738,7 @@ static int ee_call(lua_State * L) {
 
 	// get args:
 	std::vector<GenericValue> gvs(ft->getNumParams());
-	for (int i=0; i<ft->getNumParams(); i++) {
+	for (unsigned int i=0; i<ft->getNumParams(); i++) {
 		Lua2GV(L, i+3, gvs[i], ft->getParamType(i));
 	}
 	GenericValue res = EE->runFunction(f, gvs);
@@ -1009,14 +1009,14 @@ static int structtype_len(lua_State * L) {
 }
 static int structtype_getelementtype(lua_State * L) {
 	StructType * u = Glue<StructType>::checkto(L, 1);
-	int i = luaL_checkinteger(L, 2);
+	unsigned int i = luaL_checkinteger(L, 2);
 	if (i >= u->getNumElements())
 		return luaL_error(L, "StructType has only %d elements (requested %d)", u->getNumElements(), i);
 	return Glue<Type>::push(L, (Type *)u->getElementType(i));
 }
 static int structtype_gettypes(lua_State * L) {
 	StructType * u = Glue<StructType>::checkto(L, 1);
-	for (int i=0; i< u->getNumElements(); i++) {
+	for (unsigned int i=0; i< u->getNumElements(); i++) {
 		Glue<Type>::push(L, (Type *)u->getElementType(i));
 	}
 	return u->getNumElements();
@@ -1141,7 +1141,7 @@ static int functiontype_isvararg(lua_State * L) {
 }
 static int functiontype_getparamtype(lua_State * L) {
 	FunctionType * u = Glue<FunctionType>::checkto(L, 1);
-	int i = luaL_checkinteger(L, 2);
+	unsigned int i = luaL_checkinteger(L, 2);
 	if (i >= u->getNumParams())
 		return luaL_error(L, "FunctionType has only %d params (requested %d)", u->getNumParams(), i);
 	return Glue<Type>::push(L, (Type *)u->getParamType(i));
@@ -1338,7 +1338,7 @@ static int block_terminator(lua_State * L) {
 }
 static int block_instruction(lua_State * L) {
 	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	int i = luaL_checkinteger(L, 2);
+	unsigned int i = luaL_checkinteger(L, 2);
 	if (i >= f->size())
 		return luaL_error(L, "Function has only %d arguments (requested %d)", f->size(), i);
 	BasicBlock::iterator it = f->begin();
@@ -1523,7 +1523,7 @@ template<> Function * Glue<Function>::usr_new(lua_State * L) {
 		luaL_error(L, "Function %s already exists", name.c_str());
 		return 0;
 	}
-	int i=0;
+	unsigned int i=0;
 	Function::arg_iterator AI = F->arg_begin();
 	for (; i < F->getFunctionType()->getNumParams(); ++AI, ++i) {
 		char argname[16];
@@ -1559,7 +1559,7 @@ static int function_callingconv(lua_State * L) {
 }
 static int function_argument(lua_State * L) {
 	Function * f = Glue<Function>::checkto(L, 1);
-	int i = luaL_checkinteger(L, 2);
+	unsigned int i = luaL_checkinteger(L, 2);
 	if (i >= f->getFunctionType()->getNumParams())
 		return luaL_error(L, "Function has only %d arguments (requested %d)", f->getFunctionType()->getNumParams(), i);
 	Function::arg_iterator it = f->arg_begin();
@@ -1573,7 +1573,7 @@ static int function_len(lua_State * L) {
 }
 static int function_block(lua_State * L) {
 	Function * f = Glue<Function>::checkto(L, 1);
-	int i = luaL_checkinteger(L, 2);
+	unsigned int i = luaL_checkinteger(L, 2);
 	if (i >= f->size())
 		return luaL_error(L, "Function has only %d blocks (requested %d)", f->size(), i);
 	Function::iterator it = f->begin();
@@ -2378,7 +2378,7 @@ int compile(lua_State * L) {
 	HeaderSearch headers(fm);
 	InitHeaderSearch initHeaders(headers, true, isysroot);
 	
-	for(int i=0; i < default_headers.size(); ++i) {
+	for(unsigned int i=0; i < default_headers.size(); ++i) {
 		initHeaders.AddPath(default_headers[i], InitHeaderSearch::Angled, false, true, false);
 	}
 	
@@ -2460,7 +2460,7 @@ int lua_clang_cc(lua_State *L) {
 	}
 	
 	const char *argv[256];
-	for(int i=0; i < args.size(); i++) {
+	for(unsigned int i=0; i < args.size(); i++) {
 		argv[i] = args[i].c_str();
 			ddebug("argv[%d]: %s\n", i, argv[i]);
 	}
