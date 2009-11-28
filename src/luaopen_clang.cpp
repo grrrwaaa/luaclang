@@ -81,6 +81,7 @@ THE SOFTWARE.
 #include "llvm/System/Signals.h"
 #include "llvm/Transforms/IPO.h"
 #include "llvm/Transforms/Scalar.h"
+#include "llvm/ValueSymbolTable.h"
 
 #include <string>
 #include <sstream>
@@ -2154,6 +2155,11 @@ int lua_clang_cc(lua_State *L) {
 	luaL_argcheck(L, lua_type(L,1)==LUA_TTABLE, 1, "compiler flags table");
 	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
 		
+		
+//	void *xprintf = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("printf");
+//	void *xsin = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("sin");
+		
+		
 	std::vector<std::string> args;
 	int len = lua_objlen(L, 1);
 	for(int i=1; i <= len; i++) {
@@ -2184,10 +2190,24 @@ int lua_clang_cc(lua_State *L) {
 	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 	if(cmodule) {
 //			ddebug("Print functions\n");
-		Module::FunctionListType &fl = cmodule->getFunctionList();
+		/*Module::FunctionListType &fl = cmodule->getFunctionList();
 		for(Module::FunctionListType::iterator it = fl.begin(); it != fl.end(); ++it) {
-//				ddebug("F: %s\n", it->getName().data());
+			printf("F: %s\n", it->getName().data());
 		}
+		
+		ValueSymbolTable &vt = cmodule->getValueSymbolTable();
+		//for(int i=0; i < vt.size(); i++) {
+		for(ValueSymbolTable::iterator itt = vt.begin(); itt != vt.end(); ++itt) {
+		
+			printf("S: %s\n", itt->getValue()->getName().data());
+		}
+		
+		Function *F = cmodule->getFunction("sin");
+		void *xxsin = getEE()->getPointerToFunction(F);
+		
+		printf("xsin: %x   xxsin: %x  %d\n", xsin, xxsin, (int)xsin);
+		*/
+
 	
 		// link with other module? JIT?
 		//lua_pushboolean(L, true);
@@ -2212,7 +2232,7 @@ int luaopen_clang(lua_State * L) {
 	if (llvm::InitializeNativeTarget()) 
 		luaL_error(L, "InitializeNativeTarget failure");
 		
-	llvm::sys::DynamicLibrary::AddSymbol("printf", (void *)printf);
+//	llvm::sys::DynamicLibrary::AddSymbol("printf", (void *)printf);
 
 	const char * libname = lua_tostring(L, -1);
 	struct luaL_reg lib[] = {

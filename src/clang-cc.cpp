@@ -2273,7 +2273,7 @@ CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const 
 	
 	
 	CompileOptions copts; // e.g. optimizations
-	CodeGenerator * codegen = CreateLLVMCodeGen(Diags, std::string("jit"), copts, llvm::getGlobalContext());
+	CodeGenerator * codegen = CreateLLVMCodeGen(Diags, std::string(srcname), copts, llvm::getGlobalContext());
 
   // Set an error handler, so that any LLVM backend diagnostics go through our
   // error handler.
