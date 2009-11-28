@@ -99,7 +99,7 @@ THE SOFTWARE.
 //#define ddebug(...) printf(__VA_ARGS__)
 
 extern llvm::ExecutionEngine * getEE();
-extern void registerWithJIT(lua_State * L, llvm::Module * module);
+extern llvm::ModuleProvider * createModuleProviderFromJIT(lua_State * L, llvm::Module * module);
 
 // used by almost all LLVM types:
 template<typename T>
@@ -114,66 +114,9 @@ using namespace llvm;
 struct ForceJITLinking forcejitlinking;
 
 /* 
-	Module
+	Optimize
 */
-#pragma mark Module
-template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
-	std::stringstream s;
-	u->print(s, 0);
-	lua_pushfstring(L, "%s", s.str().c_str());
-	return 1;
-}
 
-template<> const char * Glue<Module>::usr_name() { return "Module"; }
-template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
-	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
-	return 1;
-}
-static int module_linkto(lua_State * L) {
-	std::string err;
-	Module * self = Glue<Module>::checkto(L, 1);
-	Module * mod = Glue<Module>::checkto(L, 2);
-	llvm::Linker::LinkModules(self, mod, &err);
-	if (err.length())
-		luaL_error(L, err.c_str());
-	return 0;
-}
-
-int module_writeBitcodeFile(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-	WriteBitcodeToFile(m, ofile);
-	ofile.close();
-	return 0;
-}
-
-static int module_dump(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	m->dump();
-	return 0;
-}
-
-int module_addTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_checkstring(L, 3);
-	lua_pushboolean(L, m->addTypeName(name, ty));
-	return 1;
-}
-int module_getTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, m->getTypeName(ty).c_str());
-	return 1;
-}
-int module_getTypeByName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const char * name = luaL_checkstring(L, 2);
-	const Type * t = m->getTypeByName(name);
-	if (t == 0)
-		return luaL_error(L, "Type %s not found", name);
-	return Glue<Type>::push(L, (Type *)t);
-}
 // A utility function that adds a pass to the pass manager but will also add
 // a verifier pass after if we're supposed to verify.
 static inline void addPass(PassManager &PM, Pass *P) {
@@ -183,15 +126,117 @@ static inline void addPass(PassManager &PM, Pass *P) {
 //	if (VerifyEach)
 //		PM.add(createVerifierPass());
 }
+//
+//void
+//PyGlobalLlvmData::InitializeOptimizations()
+//{
+//    optimizations_[0] = new FunctionPassManager(this->module_provider_);
+//
+//    FunctionPassManager *quick =
+//        new FunctionPassManager(this->module_provider_);
+//    optimizations_[1] = quick;
+//    quick->add(new llvm::TargetData(*engine_->getTargetData()));
+//    quick->add(llvm::createPromoteMemoryToRegisterPass());
+//    quick->add(llvm::createInstructionCombiningPass());
+//    quick->add(llvm::createCFGSimplificationPass());
+//    quick->add(llvm::createVerifierPass());
+//
+//    // This is the default optimization used by the JIT. Higher levels
+//    // are for experimentation.
+//    FunctionPassManager *O2 =
+//        new FunctionPassManager(this->module_provider_);
+//    optimizations_[2] = O2;
+//    O2->add(new llvm::TargetData(*engine_->getTargetData()));
+//    O2->add(llvm::createCFGSimplificationPass());
+//    O2->add(PyCreateSingleFunctionInliningPass());
+//    O2->add(llvm::createJumpThreadingPass());
+//    O2->add(llvm::createPromoteMemoryToRegisterPass());
+//    O2->add(llvm::createInstructionCombiningPass());
+//    O2->add(llvm::createCFGSimplificationPass());
+//    O2->add(llvm::createScalarReplAggregatesPass());
+//    O2->add(CreatePyAliasAnalysis(*this));
+//    O2->add(llvm::createLICMPass());
+//    O2->add(llvm::createCondPropagationPass());
+//    O2->add(CreatePyAliasAnalysis(*this));
+//    O2->add(llvm::createGVNPass());
+//    O2->add(llvm::createSCCPPass());
+//    O2->add(llvm::createAggressiveDCEPass());
+//    O2->add(llvm::createCFGSimplificationPass());
+//    O2->add(llvm::createVerifierPass());
+//
+//
+//    // This is the list used by LLVM's opt tool's -O3 option.
+//    FunctionPassManager *optO3 =
+//        new FunctionPassManager(this->module_provider_);
+//    optimizations_[3] = optO3;
+//    optO3->add(new llvm::TargetData(*engine_->getTargetData()));
+//
+//    using namespace llvm;
+//    // Commented lines are SCC or ModulePasses, which means they can't
+//    // be added to our FunctionPassManager.  TODO: Figure out how to
+//    // run them on a function at a time anyway.
+//    optO3->add(createCFGSimplificationPass());
+//    optO3->add(createScalarReplAggregatesPass());
+//    optO3->add(createInstructionCombiningPass());
+//    //optO3->add(createRaiseAllocationsPass());   // call %malloc -> malloc inst
+//    optO3->add(createCFGSimplificationPass());       // Clean up disgusting code
+//    optO3->add(createPromoteMemoryToRegisterPass()); // Kill useless allocas
+//    //optO3->add(createGlobalOptimizerPass());       // OptLevel out global vars
+//    //optO3->add(createGlobalDCEPass());          // Remove unused fns and globs
+//    //optO3->add(createIPConstantPropagationPass()); // IP Constant Propagation
+//    //optO3->add(createDeadArgEliminationPass());   // Dead argument elimination
+//    optO3->add(createInstructionCombiningPass());   // Clean up after IPCP & DAE
+//    optO3->add(createCFGSimplificationPass());      // Clean up after IPCP & DAE
+//    //optO3->add(createPruneEHPass());               // Remove dead EH info
+//    //optO3->add(createFunctionAttrsPass());         // Deduce function attrs
+//    optO3->add(PyCreateSingleFunctionInliningPass());
+//    //optO3->add(createFunctionInliningPass());      // Inline small functions
+//    //optO3->add(createArgumentPromotionPass());  // Scalarize uninlined fn args
+//    optO3->add(createSimplifyLibCallsPass());    // Library Call Optimizations
+//    optO3->add(createInstructionCombiningPass());  // Cleanup for scalarrepl.
+//    optO3->add(createJumpThreadingPass());         // Thread jumps.
+//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
+//    optO3->add(createScalarReplAggregatesPass());  // Break up aggregate allocas
+//    optO3->add(createInstructionCombiningPass());  // Combine silly seq's
+//    optO3->add(createCondPropagationPass());       // Propagate conditionals
+//    optO3->add(createTailCallEliminationPass());   // Eliminate tail calls
+//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
+//    optO3->add(createReassociatePass());           // Reassociate expressions
+//    optO3->add(createLoopRotatePass());            // Rotate Loop
+//    optO3->add(CreatePyAliasAnalysis(*this));
+//    optO3->add(createLICMPass());                  // Hoist loop invariants
+//    optO3->add(createLoopUnswitchPass());
+//    optO3->add(createLoopIndexSplitPass());        // Split loop index
+//    optO3->add(createInstructionCombiningPass());
+//    optO3->add(createIndVarSimplifyPass());        // Canonicalize indvars
+//    optO3->add(createLoopDeletionPass());          // Delete dead loops
+//    optO3->add(createLoopUnrollPass());          // Unroll small loops
+//    optO3->add(createInstructionCombiningPass()); // Clean up after the unroller
+//    optO3->add(CreatePyAliasAnalysis(*this));
+//    optO3->add(createGVNPass());                   // Remove redundancies
+//    optO3->add(CreatePyAliasAnalysis(*this));
+//    optO3->add(createMemCpyOptPass());            // Remove memcpy / form memset
+//    optO3->add(createSCCPPass());                  // Constant prop with SCCP
+//
+//    // Run instcombine after redundancy elimination to exploit opportunities
+//    // opened up by them.
+//    optO3->add(createInstructionCombiningPass());
+//    optO3->add(createCondPropagationPass());       // Propagate conditionals
+//    optO3->add(CreatePyAliasAnalysis(*this));
+//    optO3->add(createDeadStoreEliminationPass());  // Delete dead stores
+//    optO3->add(createAggressiveDCEPass());   // Delete dead instructions
+//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
+//
+//    //optO3->add(createStripDeadPrototypesPass()); // Get rid of dead prototypes
+//    //optO3->add(createDeadTypeEliminationPass());   // Eliminate dead types
+//
+//    //optO3->add(createConstantMergePass());       // Merge dup global constants
+//    optO3->add(llvm::createVerifierPass());
+//}
 
-int module_optimize(lua_State * L) {
+static void optimize_module(Module * M, bool DisableOptimizations, bool DisableInline) {
 	PassManager Passes;
-	Module * M = Glue<Module>::checkto(L, 1);
 	addPass(Passes, new TargetData(M));
-	
-	bool DisableOptimizations = lua_toboolean(L, 2);
-	bool DisableInline = lua_toboolean(L, 3);;
-
 
 	// @see https://llvm.org/svn/llvm-project/llvm/branches/non-call-eh/tools/llvm-ld/Optimize.cpp
 	if (!DisableOptimizations) {
@@ -288,15 +333,86 @@ int module_optimize(lua_State * L) {
 	Passes.add(createVerifierPass());
 	
 	Passes.run(*M);
-	return 0;
+}
+
+/* 
+	Module
+*/
+#pragma mark Module
+template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
+	std::stringstream s;
+	u->print(s, 0);
+	lua_pushfstring(L, "%s", s.str().c_str());
+	return 1;
+}
+
+template<> const char * Glue<Module>::usr_name() { return "Module"; }
+template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
+	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
+	return 1;
 }
 template<> Module * Glue<Module>::usr_new(lua_State * L) {
 	const char * modulename = luaL_checkstring(L, 1);
 	Module * M = new Module(modulename, getGlobalContext()); 
+	createModuleProviderFromJIT(L, M);
 	return M;
 }
-template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {
-	registerWithJIT(L, u);
+template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
+	getEE()->clearGlobalMappingsFromModule(u);
+	//getEE()->deleteModuleProvider(...);
+}
+template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
+static int module_linkto(lua_State * L) {
+	std::string err;
+	Module * self = Glue<Module>::checkto(L, 1);
+	Module * mod = Glue<Module>::checkto(L, 2);
+	llvm::Linker::LinkModules(self, mod, &err);
+	if (err.length())
+		luaL_error(L, err.c_str());
+	return 0;
+}
+
+int module_writeBitcodeFile(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
+	WriteBitcodeToFile(m, ofile);
+	ofile.close();
+	return 0;
+}
+
+static int module_dump(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	m->dump();
+	return 0;
+}
+
+int module_addTypeName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	const char * name = luaL_checkstring(L, 3);
+	lua_pushboolean(L, m->addTypeName(name, ty));
+	return 1;
+}
+int module_getTypeName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	lua_pushstring(L, m->getTypeName(ty).c_str());
+	return 1;
+}
+int module_getTypeByName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const char * name = luaL_checkstring(L, 2);
+	const Type * t = m->getTypeByName(name);
+	if (t == 0)
+		return luaL_error(L, "Type %s not found", name);
+	return Glue<Type>::push(L, (Type *)t);
+}
+int module_optimize(lua_State * L) {
+	Module * M = Glue<Module>::checkto(L, 1);
+	bool DisableOptimizations = lua_toboolean(L, 2);
+	bool DisableInline = lua_toboolean(L, 3);
+	optimize_module(M, DisableOptimizations, DisableInline);
+	return 0;
 }
 template<> void Glue<Module> :: usr_mt(lua_State * L) {
 	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
@@ -318,8 +434,81 @@ template<> int Glue<ModuleProvider>::usr_tostring(lua_State * L, ModuleProvider 
 	return 1;
 }
 template<> ModuleProvider * Glue<ModuleProvider>::usr_new(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	return new ExistingModuleProvider(m);
+	//Module * m = Glue<Module>::checkto(L, 1);
+	//return new ExistingModuleProvider(m);
+	const char * modulename = luaL_checkstring(L, 1);
+	Module * M = new Module(modulename, getGlobalContext()); 
+	return createModuleProviderFromJIT(L, M);
+}
+template<> void Glue<ModuleProvider>::usr_gc(lua_State * L, ModuleProvider * mp) {
+	ExecutionEngine * ee = getEE();
+	ee->clearGlobalMappingsFromModule(mp->getModule());
+	ee->deleteModuleProvider(mp);
+}
+static int moduleprovider_module(lua_State * L) {
+	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
+	Glue<Module>::push(L, mp->getModule());
+	return 1;
+}
+static int moduleprovider_dump(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	m->dump();
+	return 0;
+}
+int moduleprovider_addTypeName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	const char * name = luaL_checkstring(L, 3);
+	lua_pushboolean(L, m->addTypeName(name, ty));
+	return 1;
+}
+int moduleprovider_getTypeName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	lua_pushstring(L, m->getTypeName(ty).c_str());
+	return 1;
+}
+int moduleprovider_getTypeByName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const char * name = luaL_checkstring(L, 2);
+	const Type * t = m->getTypeByName(name);
+	if (t == 0)
+		return luaL_error(L, "Type %s not found", name);
+	return Glue<Type>::push(L, (Type *)t);
+}
+int moduleprovider_writeBitcodeFile(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
+	WriteBitcodeToFile(m, ofile);
+	ofile.close();
+	return 0;
+}
+static int moduleprovider_link(lua_State * L) {
+	std::string err;
+	Module * self = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	Module * mod = Glue<ModuleProvider>::checkto(L, 2)->getModule();
+	llvm::Linker::LinkModules(self, mod, &err);
+	if (err.length())
+		luaL_error(L, err.c_str());
+	return 0;
+}
+int moduleprovider_optimize(lua_State * L) {
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	bool DisableOptimizations = lua_toboolean(L, 2);
+	bool DisableInline = lua_toboolean(L, 3);
+	optimize_module(M, DisableOptimizations, DisableInline);
+	return 0;
+}
+
+template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
+	lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
+	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
+	lua_pushcfunction(L, moduleprovider_addTypeName); lua_setfield(L, -2, "addTypeName");
+	lua_pushcfunction(L, moduleprovider_getTypeName); lua_setfield(L, -2, "getTypeName");
+	lua_pushcfunction(L, moduleprovider_getTypeByName); lua_setfield(L, -2, "getTypeByName");
+	lua_pushcfunction(L, moduleprovider_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
+	lua_pushcfunction(L, moduleprovider_link); lua_setfield(L, -2, "link");
+	lua_pushcfunction(L, moduleprovider_optimize); lua_setfield(L, -2, "optimize");
 }
 
 /*
@@ -331,19 +520,55 @@ ExecutionEngine * getEE() {
 	return EE;
 }
 
-void registerWithJIT(lua_State * L, Module * module) {
+ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 	ExistingModuleProvider * emp = new ExistingModuleProvider(module);
 
 	// register with JIT (create if necessary)
 	if (EE == 0) {
 		std::string err;
-		EE = ExecutionEngine::createJIT(emp, &err, 0, CodeGenOpt::Default, false);
+		EE = ExecutionEngine::createJIT(
+			emp,	// module provider
+			&err,	// error string
+			0,		// JITMemoryManager
+			CodeGenOpt::Default,	// JIT slowly (None, Default, Aggressive)
+			false	// allocate GlobalVariables separately from code
+		);
+		
+//		// this is how unladen swallow does it:
+//		engine_ = llvm::ExecutionEngine::create(
+//			module_provider_,
+//			// Don't force the interpreter (use JIT if possible).
+//			false,
+//			&error,
+//			// JIT slowly, to produce better machine code.  TODO: We'll
+//			// almost certainly want to make this configurable per
+//			// function.
+//			llvm::CodeGenOpt::Default,
+//			// Allocate GlobalVariables separately from code.
+//			false);
+		
 		if (EE == 0) {
 			luaL_error(L, "Failed to create Execution Engine %p: %s\n", EE, err.c_str());
+		}
+		// When we ask to JIT a function, we should also JIT other
+		// functions that function depends on.  This would let us JIT in a
+		// background thread to avoid blocking the main thread during
+		// codegen.
+		EE->DisableLazyCompilation();
+		
+		// Fill the ExecutionEngine with the addresses of known global variables.
+		for (Module::global_iterator it = module->global_begin();
+			it != module->global_end(); ++it) {
+			EE->getOrEmitGlobalVariable(it);
 		}
 	} else {
 		EE->addModuleProvider(emp);
 	}
+	
+	// unladen swallow also does this:
+	module->setDataLayout(EE->getTargetData()->getStringRepresentation());
+	
+	return emp;
 }
 
 
@@ -402,6 +627,14 @@ static int GV2Lua(lua_State * L, GenericValue & v, const Type * t) {
 			lua_pushlightuserdata(L, v.PointerVal);
 			return 1;
 	}
+	return 0;
+}
+
+static int ee_addGlobalMapping(lua_State * L) {
+	ExecutionEngine * ee = getEE();
+	GlobalValue * gv = Glue<GlobalValue>::checkto(L, 1);
+	void * addr = lua_touserdata(L, 2);
+	ee->addGlobalMapping(gv, addr);
 	return 0;
 }
 
@@ -548,7 +781,7 @@ template<> void Glue<ExecutionEngine>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, ee_getTargetData);	lua_setfield(L, -2, "getTargetData");
 	lua_pushcfunction(L, ee_offsetOf);	lua_setfield(L, -2, "offsetOf");
 	lua_pushcfunction(L, ee_pushluafunction); lua_setfield(L, -2, "pushluafunction");
-	
+	lua_pushcfunction(L, ee_addGlobalMapping); lua_setfield(L, -2, "addGlobalMapping");
 }
 
 /*
@@ -1155,9 +1388,22 @@ static int global_isdeclaration(lua_State * L) {
 	lua_pushboolean(L, f->isDeclaration());
 	return 1;
 }
+
+
+static int global_getptr(lua_State * L) {
+	GlobalValue * u = Glue<GlobalValue>::checkto(L, 1);
+	void * ptr = getEE()->getPointerToGlobalIfAvailable(u);
+	if (ptr) {
+		lua_pushlightuserdata(L, ptr);
+		return 1;
+	}
+	return 0;
+}
+
 template<> void Glue<GlobalValue>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, global_linkage); lua_setfield(L, -2, "linkage");
 	lua_pushcfunction(L, global_isdeclaration); lua_setfield(L, -2, "isdeclaration");
+	lua_pushcfunction(L, global_getptr); lua_setfield(L, -2, "getptr");
 }
 // likely methods:	getParent() (returns a Module *)
 
@@ -1210,6 +1456,12 @@ template<> void Glue<GlobalVariable>::usr_mt(lua_State * L) {
 
 /*
 	Function : GlobalValue
+	
+	TODO: 
+	When a function is destroyed, we should call
+		engine->freeMachineCodeForFunction(function);
+        function->eraseFromParent();
+	But this isn't safe if another function is using it... so perhaps let the module destructor do it?
 */
 #pragma mark Function
 template<> const char * Glue<Function>::usr_name() { return "Function"; }
@@ -1296,6 +1548,7 @@ static int function_verify(lua_State * L) {
 // trick here is knowing what the right
 static int function_getptr(lua_State * L) {
 	Function * u = Glue<Function>::to(L, 1);
+	// NOTE: this causes codegeneration of F and any dependents:
 	void * f = getEE()->getPointerToFunction(u);
 	lua_pushlightuserdata(L, f);
 	return 1;
@@ -1781,8 +2034,7 @@ int readBitcodeFile(lua_State * L) {
 	if (err.size()) {
 		luaL_error(L, "%s: %s", filename.c_str(), err.c_str());
 	}
-
-	Glue<Module>::push(L, bitcodemodule);
+	Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, bitcodemodule));
 	return 1;
 }
 /*
@@ -1965,9 +2217,8 @@ public:
 			ParseAST(pp, codegen, context, false); // last flag is verbose statist
 			Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 			if (cmodule) {
-				// link with other module? JIT?
 				lua_pushboolean(L, true);
-				Glue<Module>::push(L, cmodule);
+				Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
 				
 				delete codegen;
 				delete target;
@@ -2123,9 +2374,8 @@ int compile(lua_State * L) {
 	ParseAST(pp, codegen, context, false); // last flag is verbose statist
 	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 	if (cmodule) {
-		// link with other module? JIT?
 		//lua_pushboolean(L, true);
-		Glue<Module>::push(L, cmodule);
+		Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
 	} else {
 		lua_pushboolean(L, false);
 		lua_insert(L, 1);
@@ -2209,9 +2459,8 @@ int lua_clang_cc(lua_State *L) {
 		*/
 
 	
-		// link with other module? JIT?
 		//lua_pushboolean(L, true);
-		Glue<Module>::push(L, cmodule);
+		Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
 	} else {
 		lua_pushboolean(L, false);
 //			lua_insert(L, 1);
