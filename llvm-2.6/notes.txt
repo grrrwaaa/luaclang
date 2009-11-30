@@ -1,0 +1,19 @@
+LLVM configure:
+
+svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm
+cd llvm
+cd tools
+svn co http://llvm.org/svn/llvm-project/cfe/trunk clang
+# edit llvm/tools/Makefile to clang to the list of PARALLEL_DIRS before continuing
+# to build against 10.4, we also need to comment out #define HAVE_BACKTRACE 1' from include/llvm/Config/config.h after configure.
+
+cd ..
+#see http://www.llvm.org/docs/GettingStarted.html#environment
+env MACOSX_DEPLOYMENT_TARGET=10.4 ./configure --enable-targets=x86 --enable-jit --enable-optimized --enable-pic 
+sudo env MACOSX_DEPLOYMENT_TARGET=10.4 make UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.4u.sdk/
+sudo make install -k
+sudo scp -r Release/lib/libclang* /usr/local/lib
+sudo scp -r Release/lib/clang* /usr/local/lib
+sudo scp -r tools/clang/include/clang/ /usr/local/include/clang
+find /usr/local/include/clang \( -name .svn -and -print -and -exec rm -rf {} \; -and -prune \)
+find /usr/local/lib \( -name .svn -and -print -and -exec rm -rf {} \; -and -prune \)
