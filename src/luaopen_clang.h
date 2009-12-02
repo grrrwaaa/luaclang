@@ -6,7 +6,7 @@ Luaclang aims to closely follow the LLVM API, but making use of Lua idioms where
 Luaclang is released under the MIT open source license
 @see http://www.opensource.org/licenses/mit-license.php
 
-Copyright (c) 2009 Graham Wakefield
+Copyright (c) 2009 Graham Wakefield & Wesley Smith
 http://code.google.com/p/luaclang/
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
