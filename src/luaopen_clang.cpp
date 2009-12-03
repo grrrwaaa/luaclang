@@ -370,6 +370,9 @@ static int module_linkto(lua_State * L) {
 	llvm::Linker::LinkModules(self, mod, &err);
 	if (err.length())
 		luaL_error(L, err.c_str());
+	// mod can't be used anymore, as it has been subsumed into self:
+	lua_pushnil(L);
+	lua_setmetatable(L, 2);
 	return 0;
 }
 
@@ -491,6 +494,9 @@ static int moduleprovider_link(lua_State * L) {
 	llvm::Linker::LinkModules(self, mod, &err);
 	if (err.length())
 		luaL_error(L, err.c_str());
+	// mod can't be used anymore, as it has been subsumed into self:
+	lua_pushnil(L);
+	lua_setmetatable(L, 2);
 	return 0;
 }
 int moduleprovider_optimize(lua_State * L) {
