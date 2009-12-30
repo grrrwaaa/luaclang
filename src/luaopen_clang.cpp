@@ -41,6 +41,7 @@ THE SOFTWARE.
 #include "clang/Driver/Driver.h"
 #include "clang/Frontend/CompileOptions.h"
 #include "clang/Frontend/InitHeaderSearch.h"
+#include "clang/Frontend/InitPreprocessor.h"
 #include "clang/Frontend/TextDiagnosticBuffer.h"
 #include "clang/Frontend/TextDiagnosticPrinter.h"
 #include "clang/Lex/HeaderSearch.h"
@@ -63,7 +64,7 @@ THE SOFTWARE.
 #include "llvm/Linker.h"
 #include "llvm/Module.h"
 #include "llvm/ModuleProvider.h"
-#include "llvm/Target/Targetdata.h"
+#include "llvm/Target/TargetData.h"
 #include "llvm/Target/TargetSelect.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Type.h"
@@ -95,6 +96,21 @@ THE SOFTWARE.
 
 #include "luaglue.h"
 #include "luaopen_clang.h"
+
+#if defined(WIN32) || defined(__WINDOWS_MM__)
+	#define LUA_CLANG_WIN32 1
+	#ifdef LUA_CLANG_EXPORTS
+		#define LUA_CLANG_API __declspec(dllexport)
+	#else
+		#define LUA_CLANG_API __declspec(dllimport)
+	#endif
+#elif defined( __APPLE__ ) && defined( __MACH__ )
+	#define LUA_CLANG_OSX 1
+	#define LUA_CLANG_API extern
+#else
+	#define LUA_CLANG_LINUX 1
+	#define LUA_CLANG_API extern
+#endif
 
 #define ddebug(...) 
 //#define ddebug(...) printf(__VA_ARGS__)
@@ -336,200 +352,6 @@ static void optimize_module(Module * M, bool DisableOptimizations, bool DisableI
 	Passes.run(*M);
 }
 
-/* 
-	Module
-*/
-#pragma mark Module
-template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
-	std::stringstream s;
-	u->print(s, 0);
-	lua_pushfstring(L, "%s", s.str().c_str());
-	return 1;
-}
-
-template<> const char * Glue<Module>::usr_name() { return "Module"; }
-template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
-	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
-	return 1;
-}
-template<> Module * Glue<Module>::usr_new(lua_State * L) {
-	const char * modulename = luaL_checkstring(L, 1);
-	Module * M = new Module(modulename, getGlobalContext()); 
-	createModuleProviderFromJIT(L, M);
-	return M;
-}
-template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
-	getEE()->clearGlobalMappingsFromModule(u);
-	//getEE()->deleteModuleProvider(...);
-}
-template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
-static int module_linkto(lua_State * L) {
-	std::string err;
-	Module * self = Glue<Module>::checkto(L, 1);
-	Module * mod = Glue<Module>::checkto(L, 2);
-	llvm::Linker::LinkModules(self, mod, &err);
-	if (err.length())
-		luaL_error(L, err.c_str());
-	// mod can't be used anymore, as it has been subsumed into self:
-	lua_pushnil(L);
-	lua_setmetatable(L, 2);
-	return 0;
-}
-
-int module_writeBitcodeFile(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-	WriteBitcodeToFile(m, ofile);
-	ofile.close();
-	return 0;
-}
-
-static int module_dump(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	m->dump();
-	return 0;
-}
-
-int module_addTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_checkstring(L, 3);
-	lua_pushboolean(L, m->addTypeName(name, ty));
-	return 1;
-}
-int module_getTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, m->getTypeName(ty).c_str());
-	return 1;
-}
-int module_getTypeByName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const char * name = luaL_checkstring(L, 2);
-	const Type * t = m->getTypeByName(name);
-	if (t == 0)
-		return luaL_error(L, "Type %s not found", name);
-	return Glue<Type>::push(L, (Type *)t);
-}
-int module_optimize(lua_State * L) {
-	Module * M = Glue<Module>::checkto(L, 1);
-	bool DisableOptimizations = lua_toboolean(L, 2);
-	bool DisableInline = lua_toboolean(L, 3);
-	optimize_module(M, DisableOptimizations, DisableInline);
-	return 0;
-}
-template<> void Glue<Module> :: usr_mt(lua_State * L) {
-	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
-	lua_pushcfunction(L, module_optimize); lua_setfield(L, -2, "optimize");
-	lua_pushcfunction(L, module_dump); lua_setfield(L, -2, "dump");
-	lua_pushcfunction(L, module_addTypeName); lua_setfield(L, -2, "addTypeName");
-	lua_pushcfunction(L, module_getTypeName); lua_setfield(L, -2, "getTypeName");
-	lua_pushcfunction(L, module_getTypeByName); lua_setfield(L, -2, "getTypeByName");
-	lua_pushcfunction(L, module_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
-}
-
-/* 
-	ModuleProvider
-*/
-#pragma mark ModuleProvider
-template<> const char * Glue<ModuleProvider>::usr_name() { return "ModuleProvider"; }
-template<> int Glue<ModuleProvider>::usr_tostring(lua_State * L, ModuleProvider * u) {
-	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModule()->getModuleIdentifier().c_str(), u);
-	return 1;
-}
-template<> ModuleProvider * Glue<ModuleProvider>::usr_new(lua_State * L) {
-	//Module * m = Glue<Module>::checkto(L, 1);
-	//return new ExistingModuleProvider(m);
-	const char * modulename = luaL_checkstring(L, 1);
-	Module * M = new Module(modulename, getGlobalContext()); 
-	return createModuleProviderFromJIT(L, M);
-}
-template<> void Glue<ModuleProvider>::usr_gc(lua_State * L, ModuleProvider * mp) {
-	ExecutionEngine * ee = getEE();
-	ee->clearGlobalMappingsFromModule(mp->getModule());
-	ee->deleteModuleProvider(mp);
-}
-static int moduleprovider_module(lua_State * L) {
-	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
-	Glue<Module>::push(L, mp->getModule());
-	return 1;
-}
-static int moduleprovider_dump(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	m->dump();
-	return 0;
-}
-int moduleprovider_addTypeName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_checkstring(L, 3);
-	lua_pushboolean(L, m->addTypeName(name, ty));
-	return 1;
-}
-int moduleprovider_getTypeName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, m->getTypeName(ty).c_str());
-	return 1;
-}
-int moduleprovider_getTypeByName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const char * name = luaL_checkstring(L, 2);
-	const Type * t = m->getTypeByName(name);
-	if (t == 0)
-		return luaL_error(L, "Type %s not found", name);
-	return Glue<Type>::push(L, (Type *)t);
-}
-int moduleprovider_writeBitcodeFile(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-	WriteBitcodeToFile(m, ofile);
-	ofile.close();
-	return 0;
-}
-static int moduleprovider_link(lua_State * L) {
-	std::string err;
-	Module * self = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	Module * mod = Glue<ModuleProvider>::checkto(L, 2)->getModule();
-	llvm::Linker::LinkModules(self, mod, &err);
-	if (err.length())
-		luaL_error(L, err.c_str());
-	// mod can't be used anymore, as it has been subsumed into self:
-	lua_pushnil(L);
-	lua_setmetatable(L, 2);
-	return 0;
-}
-int moduleprovider_optimize(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	bool DisableOptimizations = lua_toboolean(L, 2);
-	bool DisableInline = lua_toboolean(L, 3);
-	optimize_module(M, DisableOptimizations, DisableInline);
-	return 0;
-}
-
-int moduleprovider_functions(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	lua_newtable(L);
-	for (Module::iterator i = M->begin(), e = M->end(); i != e; ++i) {
-		lua_pushstring(L, i->getName().data());
-		Glue<Function>::push(L, i);
-		lua_rawset(L, -3);
-	}
-	return 1;
-}
-
-template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
-	lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
-	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
-	lua_pushcfunction(L, moduleprovider_addTypeName); lua_setfield(L, -2, "addTypeName");
-	lua_pushcfunction(L, moduleprovider_getTypeName); lua_setfield(L, -2, "getTypeName");
-	lua_pushcfunction(L, moduleprovider_getTypeByName); lua_setfield(L, -2, "getTypeByName");
-	lua_pushcfunction(L, moduleprovider_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
-	lua_pushcfunction(L, moduleprovider_link); lua_setfield(L, -2, "link");
-	lua_pushcfunction(L, moduleprovider_optimize); lua_setfield(L, -2, "optimize");
-	lua_pushcfunction(L, moduleprovider_functions); lua_setfield(L, -2, "functions");
-}
-
 /*
 	Execution Engine
 */
@@ -561,6 +383,7 @@ static LuaclangJITEventListener gLuaclangJITEventListener;
 
 ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 	ExistingModuleProvider * emp = new ExistingModuleProvider(module);
+//	printf("module %p\n", emp);
 
 	// register with JIT (create if necessary)
 	if (EE == 0) {
@@ -630,10 +453,11 @@ static void Lua2GV(lua_State * L, int idx, GenericValue & v, const Type * t) {
 		case Type::DoubleTyID:
 			v.DoubleVal = luaL_optnumber(L, idx, 0);
 			break;
-		case Type::IntegerTyID:
+		case Type::IntegerTyID: {
 			int i = luaL_optinteger(L, idx, 0);
 			v.IntVal = APInt(((IntegerType *)t)->getBitWidth(), i);
 			break;
+		}
 		case Type::PointerTyID:
 			v = PTOGV(lua_touserdata(L, idx));
 			break;
@@ -830,6 +654,210 @@ template<> void Glue<ExecutionEngine>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, ee_addGlobalMapping); lua_setfield(L, -2, "addGlobalMapping");
 }
 
+
+/* 
+	Module
+*/
+#pragma mark Module
+template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
+	std::stringstream s;
+	u->print(s, 0);
+	lua_pushfstring(L, "%s", s.str().c_str());
+	return 1;
+}
+
+template<> const char * Glue<Module>::usr_name() { return "Module"; }
+template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
+	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
+	return 1;
+}
+template<> Module * Glue<Module>::usr_new(lua_State * L) {
+	const char * modulename = luaL_checkstring(L, 1);
+	Module * M = new Module(modulename, getGlobalContext()); 
+	createModuleProviderFromJIT(L, M);
+	return M;
+}
+template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
+	getEE()->clearGlobalMappingsFromModule(u);
+	//getEE()->deleteModuleProvider(...);
+}
+template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
+static int module_linkto(lua_State * L) {
+	std::string err;
+	Module * self = Glue<Module>::checkto(L, 1);
+	Module * mod = Glue<Module>::checkto(L, 2);
+	llvm::Linker::LinkModules(self, mod, &err);
+	if (err.length())
+		luaL_error(L, err.c_str());
+	// mod can't be used anymore, as it has been subsumed into self:
+	lua_pushnil(L);
+	lua_setmetatable(L, 2);
+	return 0;
+}
+
+int module_writeBitcodeFile(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
+	WriteBitcodeToFile(m, ofile);
+	ofile.close();
+	return 0;
+}
+
+static int module_dump(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	m->dump();
+	return 0;
+}
+
+int module_addTypeName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	const char * name = luaL_checkstring(L, 3);
+	lua_pushboolean(L, m->addTypeName(name, ty));
+	return 1;
+}
+int module_getTypeName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	lua_pushstring(L, m->getTypeName(ty).c_str());
+	return 1;
+}
+int module_getTypeByName(lua_State * L) {
+	Module * m = Glue<Module>::checkto(L, 1);
+	const char * name = luaL_checkstring(L, 2);
+	const Type * t = m->getTypeByName(name);
+	if (t == 0)
+		return luaL_error(L, "Type %s not found", name);
+	return Glue<Type>::push(L, (Type *)t);
+}
+int module_optimize(lua_State * L) {
+	Module * M = Glue<Module>::checkto(L, 1);
+	bool DisableOptimizations = lua_toboolean(L, 2);
+	bool DisableInline = lua_toboolean(L, 3);
+	optimize_module(M, DisableOptimizations, DisableInline);
+	return 0;
+}
+template<> void Glue<Module> :: usr_mt(lua_State * L) {
+	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
+	lua_pushcfunction(L, module_optimize); lua_setfield(L, -2, "optimize");
+	lua_pushcfunction(L, module_dump); lua_setfield(L, -2, "dump");
+	lua_pushcfunction(L, module_addTypeName); lua_setfield(L, -2, "addTypeName");
+	lua_pushcfunction(L, module_getTypeName); lua_setfield(L, -2, "getTypeName");
+	lua_pushcfunction(L, module_getTypeByName); lua_setfield(L, -2, "getTypeByName");
+	lua_pushcfunction(L, module_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
+}
+
+/* 
+	ModuleProvider
+*/
+#pragma mark ModuleProvider
+template<> const char * Glue<ModuleProvider>::usr_name() { return "ModuleProvider"; }
+template<> int Glue<ModuleProvider>::usr_tostring(lua_State * L, ModuleProvider * u) {
+	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModule()->getModuleIdentifier().c_str(), u);
+	return 1;
+}
+template<> ModuleProvider * Glue<ModuleProvider>::usr_new(lua_State * L) {
+	//Module * m = Glue<Module>::checkto(L, 1);
+	//return new ExistingModuleProvider(m);
+	const char * modulename = luaL_checkstring(L, 1);
+	Module * M = new Module(modulename, getGlobalContext()); 
+	return createModuleProviderFromJIT(L, M);
+}
+template<> void Glue<ModuleProvider>::usr_gc(lua_State * L, ModuleProvider * mp) {
+//	printf("~module %p\n", mp);
+	ExecutionEngine * ee = getEE();
+	ee->clearGlobalMappingsFromModule(mp->getModule());
+	//ee->deleteModuleProvider(mp);
+	std::string err;
+	// TODO: Fix crash
+	Module * m = ee->removeModuleProvider(mp, &err);
+//	printf("removed %s\n", err.data());
+//	delete m;
+}
+static int moduleprovider_module(lua_State * L) {
+	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
+	Glue<Module>::push(L, mp->getModule());
+	return 1;
+}
+static int moduleprovider_dump(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	m->dump();
+	return 0;
+}
+int moduleprovider_addTypeName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	const char * name = luaL_checkstring(L, 3);
+	lua_pushboolean(L, m->addTypeName(name, ty));
+	return 1;
+}
+int moduleprovider_getTypeName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const Type * ty = Glue<Type>::checkto(L, 2);
+	lua_pushstring(L, m->getTypeName(ty).c_str());
+	return 1;
+}
+int moduleprovider_getTypeByName(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	const char * name = luaL_checkstring(L, 2);
+	const Type * t = m->getTypeByName(name);
+	if (t == 0)
+		return luaL_error(L, "Type %s not found", name);
+	return Glue<Type>::push(L, (Type *)t);
+}
+int moduleprovider_writeBitcodeFile(lua_State * L) {
+	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
+	WriteBitcodeToFile(m, ofile);
+	ofile.close();
+	return 0;
+}
+static int moduleprovider_link(lua_State * L) {
+	std::string err;
+	Module * self = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	Module * mod = Glue<ModuleProvider>::checkto(L, 2)->getModule();
+	llvm::Linker::LinkModules(self, mod, &err);
+	if (err.length())
+		luaL_error(L, err.c_str());
+	// mod can't be used anymore, as it has been subsumed into self:
+	lua_pushnil(L);
+	lua_setmetatable(L, 2);
+	return 0;
+}
+int moduleprovider_optimize(lua_State * L) {
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	bool DisableOptimizations = lua_toboolean(L, 2);
+	bool DisableInline = lua_toboolean(L, 3);
+	optimize_module(M, DisableOptimizations, DisableInline);
+	return 0;
+}
+
+int moduleprovider_functions(lua_State * L) {
+	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
+	lua_newtable(L);
+	for (Module::iterator i = M->begin(), e = M->end(); i != e; ++i) {
+		lua_pushstring(L, i->getName().data());
+		Glue<Function>::push(L, i);
+		lua_rawset(L, -3);
+	}
+	return 1;
+}
+
+template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
+	lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
+	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
+	lua_pushcfunction(L, moduleprovider_addTypeName); lua_setfield(L, -2, "addTypeName");
+	lua_pushcfunction(L, moduleprovider_getTypeName); lua_setfield(L, -2, "getTypeName");
+	lua_pushcfunction(L, moduleprovider_getTypeByName); lua_setfield(L, -2, "getTypeByName");
+	lua_pushcfunction(L, moduleprovider_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
+	lua_pushcfunction(L, moduleprovider_link); lua_setfield(L, -2, "link");
+	lua_pushcfunction(L, moduleprovider_optimize); lua_setfield(L, -2, "optimize");
+	lua_pushcfunction(L, moduleprovider_functions); lua_setfield(L, -2, "functions");
+	lua_pushcfunction(L, ee_call); lua_setfield(L, -2, "call");
+	lua_pushcfunction(L, ee_pushluafunction); lua_setfield(L, -2, "pushluafunction");
+}
+
+
 /*
 	Type
 */
@@ -976,6 +1004,7 @@ template<> void Glue<Type>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, type_isValidReturnType); lua_setfield(L, -2, "isValidReturnType");
 	//lua_pushcfunction(L, type_sizeABI); lua_setfield(L, -2, "size");
 	lua_pushcfunction(L, type_id); lua_setfield(L, -2, "id");
+	lua_pushcfunction(L, ee_offsetOf); lua_setfield(L, -2, "offsetOf");
 	
 	Glue<Type>::push(L, (Type *)Type::getVoidTy(getGlobalContext())); lua_setfield(L, -2, "Void");
 	Glue<Type>::push(L, (Type *)Type::getLabelTy(getGlobalContext())); lua_setfield(L, -2, "Label");
@@ -1450,6 +1479,7 @@ template<> void Glue<GlobalValue>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, global_linkage); lua_setfield(L, -2, "linkage");
 	lua_pushcfunction(L, global_isdeclaration); lua_setfield(L, -2, "isdeclaration");
 	lua_pushcfunction(L, global_getptr); lua_setfield(L, -2, "getptr");
+	lua_pushcfunction(L, ee_addGlobalMapping); lua_setfield(L, -2, "addGlobalMapping");
 }
 // likely methods:	getParent() (returns a Module *)
 
@@ -2097,7 +2127,7 @@ static unsigned GetFID(const FIDMap& FIDs, const SourceManager &SM, SourceLocati
 #pragma mark Clang
 using namespace clang;
 using namespace clang::driver;
-
+/*
 class LuaDiagnosticPrinter : public DiagnosticClient {
 	lua_State * L;
 public:
@@ -2146,6 +2176,7 @@ public:
 		lua_pushfstring(L, OS.str().c_str());
 	}
 };
+*/
 
 static std::vector<std::string> default_headers;
 
@@ -2172,120 +2203,224 @@ public:
 //	// other flags: -x (language), -std (language standard), etc., -arch, -g (debug info), 
 	
 	static int compile(lua_State *L) {
-		Compiler *self = Glue<Compiler>::checkto(L, 1);
-		if(self) {
-			std::string csource = luaL_checkstring(L, 2);
-			std::string srcname = luaL_optstring(L, 3, "untitled");
-			std::string predefines = luaL_optstring(L, 4, "");
-			std::string isysroot = luaL_optstring(L, 5, "/Developer/SDKs/MacOSX10.4u.sdk");
-			
-			
-			// todo: set include search paths
-			lua_settop(L, 0);
-			
-			// Souce to compile
-			MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
-			if(!buffer) {
-				luaL_error(L, "couldn't load %s\n", srcname.c_str());
-				return 0;
-			}
-			
-			// Diagnostics (warning/error handling)
-			LuaDiagnosticPrinter client(L);
-			Diagnostic diags(&client);
-			
-			
-		//------------------------------------------------------
-		// Platform info
-			TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
-			
-			LangOptions lang;
+		Compiler * self = Glue<Compiler>::checkto(L, 1);
 
-			// from clang-cc:684
-			// Allow the target to set the default the langauge options as it sees fit.
-			target->getDefaultLangOptions(lang);
-			
-			lang.C99 = 1;
-			lang.HexFloats = 1;
-			lang.BCPLComment = 1;  // Only for C99/C++.
-			lang.Digraphs = 1;     // C94, C99, C++.
-			// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
-			lang.GNUMode = 1;
-			lang.ImplicitInt = 0;
-			lang.DollarIdents = 1;
-			lang.WritableStrings = 0;
-			lang.Exceptions = 0;
-			lang.Rtti = 0;
-			lang.Bool = 0;
-			lang.MathErrno = 0;
-			lang.InstantiationDepth = 99;
-			lang.OptimizeSize = 0;
-			lang.PICLevel = 1;
-			lang.GNUInline = 0;
-			lang.NoInline = 1;
-			lang.Static = 0;
-
-		//------------------------------------------------------
-		// Search paths
-			FileManager fm;
-			HeaderSearch headers(fm);
-			InitHeaderSearch initHeaders(headers, true, isysroot);
-			for(std::set<std::string>::iterator it = self->iflags.begin(); it != self->iflags.end(); ++it) {
-				initHeaders.AddPath(*it, InitHeaderSearch::Angled, false, true, false);
-			}
+		std::string csource = luaL_checkstring(L, 2);
+		std::string srcname = luaL_optstring(L, 3, "untitled");
+		//std::string isysroot = luaL_optstring(L, 4, "/Developer/SDKs/MacOSX10.4u.sdk");
+		std::string isysroot = luaL_optstring(L, 4, "/");
 		
-				
-			// Add system search paths
-			initHeaders.AddDefaultSystemIncludePaths(lang);
-			initHeaders.Realize();
-			
-			
-		//------------------------------------------------------
-		// Preprocessor 
+		
+		// todo: set include search paths
+		lua_settop(L, 0);
+		
+		// Souce to compile
+		MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
+		if(!buffer) {
+			luaL_error(L, "couldn't load %s\n", srcname.c_str());
+			return 0;
+		}
+		
+		// Diagnostics (warning/error handling)
+		TextDiagnosticBuffer client;
+		Diagnostic diags(&client);
+		
+		
+	//------------------------------------------------------
+	// Platform info
+		TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
+		
+		
+		llvm::StringMap<bool> Features;
+		//target->getDefaultFeatures(std::string("yonah"), Features); // detects SSE and other processor-specific settings
+		target->getDefaultFeatures(std::string(""), Features); // detects SSE and other processor-specific settings
+		target->HandleTargetFeatures(Features);	// sets SSELevel for x86 targets
+		
+		
+		uint64_t width = target->getPointerWidth(0);	// 32
+//		printf("getPointerWidth: %
+		printf("3DNOW: %s\n", Features.lookup(std::string("3dnow")) ? "TRUE" : "FALSE");
+		printf("3DNOWA: %s\n", Features.lookup(std::string("3dnowa")) ? "TRUE" : "FALSE");
+		printf("MMX: %s\n", Features.lookup(std::string("mmx")) ? "TRUE" : "FALSE");
+		printf("SSE: %s\n", Features.lookup(std::string("sse")) ? "TRUE" : "FALSE");
+		printf("SSE2: %s\n", Features.lookup(std::string("sse2")) ? "TRUE" : "FALSE");
+		printf("SSE3: %s\n", Features.lookup(std::string("sse3")) ? "TRUE" : "FALSE");
+		printf("SSSE3: %s\n", Features.lookup(std::string("ssse3")) ? "TRUE" : "FALSE");
+		printf("SSSE41: %s\n", Features.lookup(std::string("ssse41")) ? "TRUE" : "FALSE");
+		printf("SSSE42: %s\n", Features.lookup(std::string("ssse42")) ? "TRUE" : "FALSE");
+		
 
-			SourceManager sm;
-			Preprocessor pp(diags, lang, *target, sm, headers);
-			pp.setPredefines(predefines);
-			
+		LangOptions lang;
+		client.setLangOptions(&lang);
 
-		//------------------------------------------------------
-		// Source compilation
-			sm.createMainFileIDForMemBuffer(buffer);
-			
-			IdentifierTable idents(lang);
-			SelectorTable selects;
-			Builtin::Context builtin(*target);
-			builtin.InitializeBuiltins(idents);
-			ASTContext context(lang, sm, *target, idents, selects, builtin);
-			CompileOptions copts; // e.g. optimizations
-			CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
-			
-			ParseAST(pp, codegen, context, false); // last flag is verbose statist
-			Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
-			if (cmodule) {
-				lua_pushboolean(L, true);
-				Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
+		// from clang-cc:684
+		// Allow the target to set the default the langauge options as it sees fit.
+		target->getDefaultLangOptions(lang);
+		lang.C99 = 1;
+		lang.HexFloats = 1;
+		lang.BCPLComment = 1;  // Only for C99/C++.
+		lang.Digraphs = 1;     // C94, C99, C++.
+		lang.Trigraphs = 0;	// UPDATE
+		// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
+		lang.GNUMode = 1;
+		lang.ImplicitInt = 0;
+		lang.DollarIdents = 1;
+		lang.LaxVectorConversions = 1;	// UPDATE
+		lang.WritableStrings = 0;
+		lang.Exceptions = 0;
+		lang.Rtti = 0;
+	//	lang.Rtti = 1;	// UPDATE
+		lang.NoBuiltin = 0;	// UPDATE
+		
+		lang.Bool = 0;
+		lang.MathErrno = 0;
+	//	lang.MathErrno = 1;	// UPDATE
+		lang.InstantiationDepth = 99;
+		lang.OptimizeSize = 0;
+		lang.PICLevel = 1;
+	//	lang.PICLevel = 0;	// UPDATE
+		lang.GNUInline = 0;
+		lang.NoInline = 1;
+		lang.Static = 0;
+
+	//------------------------------------------------------
+	// Search paths
+		FileManager fm;
+		HeaderSearch headers(fm);
+
+		bool verbose_headers = false;
+	#ifdef LUA_CLANG_OSX
+		InitHeaderSearch initHeaders(headers, verbose_headers, isysroot);
+	#else
+		InitHeaderSearch initHeaders(headers, verbose_headers);
+	#endif
+
+//		for(unsigned int i=0; i < self->iflags.size(); ++i) {
+		for(std::set<std::string>::iterator it  = self->iflags.begin();
+			it != self->iflags.end();
+			++it) 
+		{
+			initHeaders.AddPath(*it, 
+								InitHeaderSearch::Angled, 
+								false, 
+								true, 
+								false);
+		}
+		
+		initHeaders.AddDefaultEnvVarPaths(lang);
+		
+		// Add system search paths
+		initHeaders.AddDefaultSystemIncludePaths(lang);
+		initHeaders.Realize();
+		
+	//------------------------------------------------------
+	// Preprocessor 
+
+		SourceManager sm;
+		Preprocessor pp(diags, lang, *target, sm, headers);
+		
+		// TODO: verify correctness of this
+		std::string predefines;
+		for(std::set<std::string>::iterator it  = self->dflags.begin();
+			it != self->dflags.end();
+			++it) 
+		{
+			predefines.append("\n");
+			predefines.append(*it);
+		}
+//		pp.setPredefines(predefines);
+		
+		PreprocessorInitOptions InitOpts;
+		if(InitializePreprocessor(pp, InitOpts)) {
+			printf("ERROR initializing preprocessor\n");
+		}
+		
+		/*
+		// NECESSARY???
+		pp->getBuiltinInfo().InitializeBuiltins(pp->getIdentifierTable(),
+                                              pp->getLangOptions().NoBuiltin);
+		*/
+
+	//------------------------------------------------------
+	// Source compilation
+		sm.createMainFileIDForMemBuffer(buffer);
+
+		ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), pp.getIdentifierTable(), pp.getSelectorTable(), pp.getBuiltinInfo());
+		CompileOptions copts; // e.g. optimizations
+		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
+		
+		ParseAST(pp, codegen, context, false); // last flag is verbose statistics
+		Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
+		if (cmodule) {
+			//lua_pushboolean(L, true);
+			Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
+		} else {
+			lua_pushboolean(L, false);
+			lua_insert(L, 1);
+			// diagnose?
+	//		unsigned count = diags.getNumDiagnostics();
+	//		return count+1;
+			unsigned count = 0;
+			for(TextDiagnosticBuffer::const_iterator it = client.err_begin();
+				it != client.err_end();
+				++it)
+			{
+				FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
+				int LineNum = SourceLoc.getInstantiationLineNumber();
+				int ColNum = SourceLoc.getInstantiationColumnNumber();
+				int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+
+				std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+				char errstr[128];
+				int start = (FileOffset < 10) ? 0 : FileOffset-10;
+				strncpy(errstr, LocBD.first+start, 10);
+				errstr[10] = '^';
+				strncpy(errstr+11, LocBD.first+start+10, 10);
+				errstr[21] = '\0';			
+
+				lua_pushfstring(L, "Error: %s %d:%d\n'%s'\n%s\n", 
+									SourceLoc.getManager().getBufferName(SourceLoc),
+									LineNum, ColNum, 
+									errstr,
+									it->second.data());
+				count++;
 				
-				delete codegen;
-				delete target;
-			
-				return 2;
-			} else {
-				lua_pushboolean(L, false);
-				lua_insert(L, 1);
-				// diagnose?
-				unsigned count = diags.getNumDiagnostics();
-				
-				delete codegen;
-				delete target;
-				
-				return count+1;
+				if(count > 250) break;
 			}
+
+			for(TextDiagnosticBuffer::const_iterator it = client.warn_begin();
+				it != client.warn_end();
+				++it)
+			{
+				FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
+				int LineNum = SourceLoc.getInstantiationLineNumber();
+				int ColNum = SourceLoc.getInstantiationColumnNumber();
+				int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+
+				std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+				char errstr[128];
+				int start = (FileOffset < 10) ? 0 : FileOffset-10;
+				strncpy(errstr, LocBD.first+start, 10);
+				errstr[10] = '^';
+				strncpy(errstr+11, LocBD.first+start+10, 10);
+				errstr[21] = '\0';
+
+				lua_pushfstring(L, "Warning: %s %d:%d\n'%s'\n%s\n",
+									SourceLoc.getManager().getBufferName(SourceLoc),
+									LineNum, ColNum, 
+									errstr,
+									it->second.data());
+				count++;
+				
+				if(count > 250) break;
+			}
+
+			return count+1;
 		}
-		else {
-			luaL_error(L, "Compiler.compile: invalid object or arguments");
-		}
-		return 0;
+
+		delete codegen;
+		delete target;
+		return 1;
 	}
 	
 	static int include(lua_State * L) {	
@@ -2325,7 +2460,6 @@ template <> void Glue<Compiler>::usr_mt(lua_State * L) {
 	lua_pushcfunction(L, Compiler::define);			lua_setfield(L, -2, "define");
 }
 
-
 int compile(lua_State * L) {
 
 	std::string csource = luaL_checkstring(L, 1);
@@ -2345,19 +2479,27 @@ int compile(lua_State * L) {
 	}
 	
 	// Diagnostics (warning/error handling)
-	LuaDiagnosticPrinter client(L);
+	TextDiagnosticBuffer client;
 	Diagnostic diags(&client);
 	
 	
 //------------------------------------------------------
 // Platform info
 	TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
-
+	
+	
+	llvm::StringMap<bool> Features;
+	target->getDefaultFeatures(std::string("yonah"), Features);
+	
 	LangOptions lang;
 
 	// from clang-cc:684
 	// Allow the target to set the default the langauge options as it sees fit.
+	client.setLangOptions(&lang);
 	target->getDefaultLangOptions(lang);
+	target->HandleTargetFeatures(Features);
+	
+	/*
 	lang.C99 = 1;
     lang.HexFloats = 1;
 	lang.BCPLComment = 1;  // Only for C99/C++.
@@ -2377,15 +2519,46 @@ int compile(lua_State * L) {
 	lang.GNUInline = 0;
 	lang.NoInline = 1;
 	lang.Static = 0;
+	*/
+	lang.C99 = 1;
+    lang.HexFloats = 1;
+	lang.BCPLComment = 1;  // Only for C99/C++.
+	lang.Digraphs = 1;     // C94, C99, C++.
+	lang.GNUMode = 1;
+	lang.ImplicitInt = 0;
+	lang.Trigraphs = !lang.GNUMode;
+	lang.DollarIdents = 1;
+	lang.WritableStrings = 0;
+	lang.Exceptions = 0;
+	lang.Rtti = 1;
+	lang.Bool = lang.OpenCL | lang.CPlusPlus;
+	lang.MathErrno = 1;
+	lang.InstantiationDepth = 99;
+	lang.ObjCSenderDispatch = 0;
+	lang.OptimizeSize = 0;
+	lang.PICLevel = 0;
+	lang.GNUInline = !lang.C99;
+	lang.NoInline = 1;
+	lang.Static = 0;
 
 //------------------------------------------------------
 // Search paths
 	FileManager fm;
 	HeaderSearch headers(fm);
-	InitHeaderSearch initHeaders(headers, true, isysroot);
-	
+
+	bool verbose_headers = false;
+#ifdef LUA_CLANG_OSX
+	InitHeaderSearch initHeaders(headers, verbose_headers, isysroot);
+#else
+	InitHeaderSearch initHeaders(headers, verbose_headers);
+#endif
+
 	for(unsigned int i=0; i < default_headers.size(); ++i) {
-		initHeaders.AddPath(default_headers[i], InitHeaderSearch::Angled, false, true, false);
+		initHeaders.AddPath(default_headers[i], 
+							InitHeaderSearch::Angled, 
+							false, 
+							true, 
+							false);
 	}
 	
 	/// CLANG HEADERS:
@@ -2396,7 +2569,6 @@ int compile(lua_State * L) {
 	initHeaders.AddDefaultSystemIncludePaths(lang);
 	initHeaders.Realize();
 	
-	
 //------------------------------------------------------
 // Preprocessor 
 
@@ -2404,20 +2576,25 @@ int compile(lua_State * L) {
 	Preprocessor pp(diags, lang, *target, sm, headers);
 	pp.setPredefines(predefines);
 	
+	PreprocessorInitOptions InitOpts;
+	InitializePreprocessor(pp, InitOpts);
+
+//	printf("HS.stats\n");
+	HeaderSearch &HS = pp.getHeaderSearchInfo();
+//	HS.PrintStats();
+	
 
 //------------------------------------------------------
 // Source compilation
 	sm.createMainFileIDForMemBuffer(buffer);
-	
-	IdentifierTable idents(lang);
-	SelectorTable selects;
-	Builtin::Context builtin(*target);
-	builtin.InitializeBuiltins(idents);
-	ASTContext context(lang, sm, *target, idents, selects, builtin);
+
+	//ASTContext context(lang, sm, *target, idents, selects, builtin);
+	//ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), idents, selects, builtin);
+	ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), pp.getIdentifierTable(), pp.getSelectorTable(), pp.getBuiltinInfo());
 	CompileOptions copts; // e.g. optimizations
 	CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
 	
-	ParseAST(pp, codegen, context, false); // last flag is verbose statist
+	ParseAST(pp, codegen, context, false); // last flag is verbose statistics
 	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 	if (cmodule) {
 		//lua_pushboolean(L, true);
@@ -2426,7 +2603,59 @@ int compile(lua_State * L) {
 		lua_pushboolean(L, false);
 		lua_insert(L, 1);
 		// diagnose?
-		unsigned count = diags.getNumDiagnostics();
+//		unsigned count = diags.getNumDiagnostics();
+//		return count+1;
+		unsigned count = 0;
+		for(TextDiagnosticBuffer::const_iterator it = client.err_begin();
+			it != client.err_end();
+			++it)
+		{
+			FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
+			int LineNum = SourceLoc.getInstantiationLineNumber();
+			int ColNum = SourceLoc.getInstantiationColumnNumber();
+			int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+
+			std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+			char errstr[128];
+			int start = (FileOffset < 10) ? 0 : FileOffset-10;
+			strncpy(errstr, LocBD.first+start, 10);
+			errstr[10] = '^';
+			strncpy(errstr+11, LocBD.first+start+10, 10);
+			errstr[21] = '\0';			
+
+			lua_pushfstring(L, "Error: %s %d:%d\n'%s'\n%s\n", 
+								SourceLoc.getManager().getBufferName(SourceLoc),
+								LineNum, ColNum, 
+								errstr,
+								it->second.data());
+			count++;
+		}
+
+		for(TextDiagnosticBuffer::const_iterator it = client.warn_begin();
+			it != client.warn_end();
+			++it)
+		{
+			FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
+			int LineNum = SourceLoc.getInstantiationLineNumber();
+			int ColNum = SourceLoc.getInstantiationColumnNumber();
+			int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+
+			std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+			char errstr[128];
+			int start = (FileOffset < 10) ? 0 : FileOffset-10;
+			strncpy(errstr, LocBD.first+start, 10);
+			errstr[10] = '^';
+			strncpy(errstr+11, LocBD.first+start+10, 10);
+			errstr[21] = '\0';
+
+			lua_pushfstring(L, "Warning: %s %d:%d\n'%s'\n%s\n",
+								SourceLoc.getManager().getBufferName(SourceLoc),
+								LineNum, ColNum, 
+								errstr,
+								it->second.data());
+			count++;
+		}
+
 		return count+1;
 	}
 
@@ -2445,18 +2674,24 @@ int getLuaState(lua_State * L) {
 }
 
 
-extern CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource);
-
+//extern CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource);
+extern int clang_cc(int argc, char **argv);
 int lua_clang_cc(lua_State *L) {
-	luaL_argcheck(L, lua_type(L,1)==LUA_TTABLE, 1, "compiler flags table");
-	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
+//	luaL_argcheck(L, lua_type(L,1)==LUA_TTABLE, 1, "compiler flags table");
+//	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
+
+
+	const char *args[] = {};
+	
+	clang_cc(5, (char **)args);
+
 		
 		
 //	void *xprintf = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("printf");
 //	void *xsin = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("sin");
 		
 		
-	std::vector<std::string> args;
+/*	std::vector<std::string> args;
 	int len = lua_objlen(L, 1);
 	for(int i=1; i <= len; i++) {
 		lua_rawgeti(L, 1, i);
@@ -2485,24 +2720,13 @@ int lua_clang_cc(lua_State *L) {
 	if(!codegen) return 0;
 	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 	if(cmodule) {
-//			ddebug("Print functions\n");
-		/*Module::FunctionListType &fl = cmodule->getFunctionList();
-		for(Module::FunctionListType::iterator it = fl.begin(); it != fl.end(); ++it) {
-			printf("F: %s\n", it->getName().data());
-		}
+	
+		// link with other module? JIT?
+		//lua_pushboolean(L, true);
+//		Glue<Module>::push(L, cmodule);
+
 		
-		ValueSymbolTable &vt = cmodule->getValueSymbolTable();
-		//for(int i=0; i < vt.size(); i++) {
-		for(ValueSymbolTable::iterator itt = vt.begin(); itt != vt.end(); ++itt) {
-		
-			printf("S: %s\n", itt->getValue()->getName().data());
-		}
-		
-		Function *F = cmodule->getFunction("sin");
-		void *xxsin = getEE()->getPointerToFunction(F);
-		
-		printf("xsin: %x   xxsin: %x  %d\n", xsin, xxsin, (int)xsin);
-		*/
+//		Function *F = cmodule->getFunction("sin");
 
 	
 		//lua_pushboolean(L, true);
@@ -2517,6 +2741,7 @@ int lua_clang_cc(lua_State *L) {
 	}
 	
 	delete codegen;
+	*/
 	return 1;
 }
 
@@ -2597,10 +2822,10 @@ int luaopen_clang(lua_State * L) {
 	//lua::dump(L, "luaopen_clang constants");
 	
 	// create a default module (+ ensures that EE exists)
-	lua_pushstring(L, "main");
-	lua_insert(L, 1);
-	Glue<llvm::Module>::create(L);
-	lua_setfield(L, -2, "main");
+//	lua_pushstring(L, "main");
+//	lua_insert(L, 1);
+//	Glue<llvm::Module>::create(L);
+//	lua_setfield(L, -2, "main");
 	
 	return 1;
 }

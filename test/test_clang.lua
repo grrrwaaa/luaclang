@@ -5,6 +5,8 @@ package.cpath = string.format("%s?.so;%s", path, package.cpath)
 
 require "clang"
 
+for k, v in pairs(clang) do print("clang", k, v) end
+
 -- we need some C headers:
 clang.addSearchPath("/Developer/SDKs/MacOSX10.4u.sdk/usr/include/")
 clang.addSearchPath("/Developer/SDKs/MacOSX10.4u.sdk/usr/lib/gcc/i686-apple-darwin9/4.0.1/include")

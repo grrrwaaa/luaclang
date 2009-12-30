@@ -509,8 +509,8 @@ static void InitializeLangOptions(LangOptions &Options, LangKind LK){
   if (AltiVec)
     Options.AltiVec = 1;
   
-  Options.setVisibilityMode(SymbolVisibility);
-  Options.OverflowChecking = OverflowChecking;
+	Options.setVisibilityMode(SymbolVisibility);
+	Options.OverflowChecking = OverflowChecking;
 }
 
 /// LangStds - Language standards we support.
@@ -682,11 +682,11 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
                                        TargetInfo *Target,
                                        const llvm::StringMap<bool> &Features) {
   // Allow the target to set the default the langauge options as it sees fit.
-  Target->getDefaultLangOptions(Options);
+//  Target->getDefaultLangOptions(Options);
 
   // Pass the map of target features to the target for validation and
   // processing.
-  Target->HandleTargetFeatures(Features);
+//  Target->HandleTargetFeatures(Features);
   
   if (LangStd == lang_unspecified) {
     // Based on the base language, pick one.
@@ -701,7 +701,6 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
     case langkind_objc:
     case langkind_objc_cpp:
       LangStd = lang_gnu99;
-//	  printf("lang_gnu99\n");
       break;
     case langkind_cxx:
     case langkind_cxx_cpp:
@@ -711,7 +710,7 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
       break;
     }
   }
-  
+/*  
   switch (LangStd) {
   default: assert(0 && "Unknown language standard!");
 
@@ -740,10 +739,11 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
   case lang_c89:
     break;
   }
+  */
 
   // GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
-  Options.GNUMode = LangStd >= lang_gnu_START;
-  
+//  Options.GNUMode = LangStd >= lang_gnu_START;
+  /*
   if (Options.CPlusPlus) {
     Options.C99 = 0;
     Options.HexFloats = Options.GNUMode;
@@ -753,28 +753,28 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
     Options.ImplicitInt = 1;
   else
     Options.ImplicitInt = 0;
-  
+  */
   // Mimicing gcc's behavior, trigraphs are only enabled if -trigraphs
   // is specified, or -std is set to a conforming mode.
-  Options.Trigraphs = !Options.GNUMode;
+/*  Options.Trigraphs = !Options.GNUMode;
   if (Trigraphs.getPosition())
     Options.Trigraphs = Trigraphs;  // Command line option wins if specified.
-
+*/
   // If in a conformant language mode (e.g. -std=c99) Blocks defaults to off
   // even if they are normally on for the target.  In GNU modes (e.g.
   // -std=gnu99) the default for blocks depends on the target settings.
   // However, blocks are not turned off when compiling Obj-C or Obj-C++ code.
-  if (!Options.ObjC1 && !Options.GNUMode)
+/*  if (!Options.ObjC1 && !Options.GNUMode)
     Options.Blocks = 0;
-  
+*/  
   // Default to not accepting '$' in identifiers when preprocessing assembler,
   // but do accept when preprocessing C.  FIXME: these defaults are right for
   // darwin, are they right everywhere?
-  Options.DollarIdents = LK != langkind_asm_cpp;
+/*  Options.DollarIdents = LK != langkind_asm_cpp;
   if (DollarsInIdents.getPosition())  // Explicit setting overrides default.
     Options.DollarIdents = DollarsInIdents;
-  
-  if (PascalStrings.getPosition())
+ */ 
+ /* if (PascalStrings.getPosition())
     Options.PascalStrings = PascalStrings;
   if (MSExtensions.getPosition())
     Options.Microsoft = MSExtensions;
@@ -798,9 +798,9 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
 
   if (AccessControl)
     Options.AccessControl = 1;
-  
+  */
   // OpenCL and C++ both have bool, true, false keywords.
-  Options.Bool = Options.OpenCL | Options.CPlusPlus;
+/*  Options.Bool = Options.OpenCL | Options.CPlusPlus;
   
   Options.MathErrno = MathErrno;
 
@@ -819,7 +819,7 @@ static void InitializeLanguageStandard(LangOptions &Options, LangKind LK,
   
   if (EmitAllDecls)
     Options.EmitAllDecls = 1;
-
+*/
   // The __OPTIMIZE_SIZE__ define is tied to -Oz, which we don't
   // support.
   Options.OptimizeSize = 0;
@@ -1001,43 +1001,25 @@ static std::string CreateTargetTriple() {
 //===----------------------------------------------------------------------===//
 
 static bool InitializeSourceManager(Preprocessor &PP,
-                                    const std::string &InFile,
-									const char *srcname,
-									const char *csource) {
+                                    const std::string &InFile) {
   // Figure out where to get and map in the main file.
   SourceManager &SourceMgr = PP.getSourceManager();
-//  FileManager &FileMgr = PP.getFileManager();
+  FileManager &FileMgr = PP.getFileManager();
 
   if (EmptyInputOnly) {
- //if(true) {
-//	printf("if (EmptyInputOnly) {\n");
     const char *EmptyStr = "";
     llvm::MemoryBuffer *SB = 
-      //llvm::MemoryBuffer::getMemBuffer(csource, csource+strlen(csource), srcname);
-	  llvm::MemoryBuffer::getMemBuffer(EmptyStr, EmptyStr, "<empty string>");
+      llvm::MemoryBuffer::getMemBuffer(EmptyStr, EmptyStr, "<empty input>");
     SourceMgr.createMainFileIDForMemBuffer(SB);
-	return true;
   } else if (InFile != "-") {
-//	printf("} else if (InFile != \"-\") {\n");
-	
-	
-	llvm::MemoryBuffer *buffer = llvm::MemoryBuffer::getMemBufferCopy(csource, csource+strlen(csource), srcname);
-	SourceMgr.createMainFileIDForMemBuffer(buffer);
-	
-	
-	/*
     const FileEntry *File = FileMgr.getFile(InFile);
     if (File) SourceMgr.createMainFileID(File, SourceLocation());
     if (SourceMgr.getMainFileID().isInvalid()) {
       PP.getDiagnostics().Report(FullSourceLoc(), diag::err_fe_error_reading) 
         << InFile.c_str();
-		
-			printf("return true;\n");
       return true;
     }
-	*/
   } else {
-//	printf(" } else {\n");
     llvm::MemoryBuffer *SB = llvm::MemoryBuffer::getSTDIN();
 
     // If stdin was empty, SB is null.  Cons up an empty memory
@@ -1049,14 +1031,12 @@ static bool InitializeSourceManager(Preprocessor &PP,
 
     SourceMgr.createMainFileIDForMemBuffer(SB);
     if (SourceMgr.getMainFileID().isInvalid()) {
-		printf("REPORT\n");
       PP.getDiagnostics().Report(FullSourceLoc(), 
                                  diag::err_fe_error_reading_stdin);
       return true;
     }
   }
 
-//printf(" return false;\n");
   return false;
 }
 
@@ -1150,7 +1130,13 @@ isysroot("isysroot", llvm::cl::value_desc("dir"), llvm::cl::init("/"),
 /// HeaderSearch object.
 void InitializeIncludePaths(const char *Argv0, HeaderSearch &Headers,
                             FileManager &FM, const LangOptions &Lang) {
-  InitHeaderSearch Init(Headers, Verbose, isysroot);
+							
+	std::string isys_val = isysroot;
+	const char *isys_val_data = isys_val.data();
+ // InitHeaderSearch Init(Headers, Verbose, isysroot);
+ //std::string syssys("/Developer/SDKs/MacOSX10.4u.sdk");
+ std::string syssys("/");
+ InitHeaderSearch Init(Headers, Verbose, syssys);
 
   // Handle -I... and -F... options, walking the lists in parallel.
   unsigned Iidx = 0, Fidx = 0;
@@ -1225,6 +1211,7 @@ void InitializeIncludePaths(const char *Argv0, HeaderSearch &Headers,
 
   Init.AddDefaultEnvVarPaths(Lang);
 
+	/*
   // Add the clang headers, which are relative to the clang binary.
   llvm::sys::Path MainExecutablePath = 
      llvm::sys::Path::GetMainExecutable(Argv0,
@@ -1242,8 +1229,9 @@ void InitializeIncludePaths(const char *Argv0, HeaderSearch &Headers,
     // We pass true to ignore sysroot so that we *always* look for clang headers
     // relative to our executable, never relative to -isysroot.
     Init.AddPath(MainExecutablePath.c_str(), InitHeaderSearch::System,
-                 false, false, false, true /*ignore sysroot*/);
+                 false, false, false, true );
   }
+  */
   
   if (!nostdinc) 
     Init.AddDefaultSystemIncludePaths(Lang);
@@ -1399,14 +1387,9 @@ static llvm::cl::opt<bool>
 GenerateDebugInfo("g",
                   llvm::cl::desc("Generate source level debug information"));
 
-/*
 static llvm::cl::opt<std::string>
 TargetCPU("mcpu",
          llvm::cl::desc("Target a specific cpu type (-mcpu=help for details)"));
-*/
-
-std::string TargetCPU;
-
 
 static llvm::cl::list<std::string>
 TargetFeatures("target-feature", llvm::cl::desc("Target specific attributes"));
@@ -1428,12 +1411,6 @@ NoImplicitFloat("no-implicit-float",
 static void ComputeFeatureMap(TargetInfo *Target,
                               llvm::StringMap<bool> &Features) {
   assert(Features.empty() && "invalid map"); 
-
-
-//	printf("ComputeFeatureMap\n");
-	
-//	std::string& CPU = TargetCPU;
-//	printf("CPU: %s\n", CPU.c_str());
 
   // Initialize the feature map based on the target.
   Target->getDefaultFeatures(TargetCPU, Features);
@@ -1798,10 +1775,7 @@ static llvm::raw_ostream* ComputeOutFile(const std::string& InFile,
 static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
                              const std::string &InFile, ProgActions PA,
                              const llvm::StringMap<bool> &Features,
-                             llvm::LLVMContext& Context, 
-							 const char *srcname,
-							 const char *csource,
-							 CodeGenerator *codegen) {
+                             llvm::LLVMContext& Context) {
   llvm::OwningPtr<llvm::raw_ostream> OS;
   llvm::OwningPtr<ASTConsumer> Consumer;
   bool ClearSourceMgr = false;
@@ -1850,7 +1824,6 @@ static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
   case EmitLLVM:
   case EmitBC: 
   case EmitLLVMOnly: {
-//	printf("EmitLLVMOnly\n");
     BackendAction Act;
     if (ProgAction == EmitAssembly) {
       Act = Backend_EmitAssembly;
@@ -1940,7 +1913,6 @@ static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
     break;
       
   case GeneratePTH: {
-	printf("GeneratePTH\n");
     llvm::TimeRegion Timer(ClangFrontendTimer);
     if (OutputFile.empty() || OutputFile == "-") {
       // FIXME: Don't fail this way.
@@ -1996,7 +1968,6 @@ static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
     break;
   }
 
-//	printf("FixItAtLocations.size() : %d\n", FixItAtLocations.size() );
   if (FixItAtLocations.size() > 0) {
     // Even without the "-fixit" flag, with may have some specific
     // locations where the user has requested fixes. Process those
@@ -2041,7 +2012,6 @@ static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
   llvm::OwningPtr<PCHReader> Reader;
   llvm::OwningPtr<ExternalASTSource> Source;
     
-//	printf("ImplicitIncludePCH.empty(): %s\n", ImplicitIncludePCH.empty() ? "TRUE" : "FALSE");
   if (!ImplicitIncludePCH.empty()) {
     // If the user specified -isysroot, it will be used for relocatable PCH
     // files.
@@ -2094,17 +2064,14 @@ static void ProcessInputFile(Preprocessor &PP, PreprocessorFactory &PPF,
     // than earlier) because this initialization creates new source
     // location entries in the source manager, which must come after
     // the source location entries for the PCH file.
-//	printf("InitializeSourceManager(PP, InFile, srcname, csource))\n");
-    if (InitializeSourceManager(PP, InFile, srcname, csource))
+    if (InitializeSourceManager(PP, InFile))
       return;
   }
 
 
   // If we have an ASTConsumer, run the parser with it.
   if (Consumer) {
-//	printf("f (Consumer)\n");
-    //ParseAST(PP, Consumer.get(), *ContextOwner.get(), Stats, 
-	ParseAST(PP, codegen, *ContextOwner.get(), Stats, 
+    ParseAST(PP, Consumer.get(), *ContextOwner.get(), Stats, 
              CompleteTranslationUnit);
 	}
 
@@ -2184,244 +2151,130 @@ InputFilenames(llvm::cl::Positional, llvm::cl::desc("<input files>"));
 static void LLVMErrorHandler(void *UserData, const std::string &Message) {
   Diagnostic &Diags = *static_cast<Diagnostic*>(UserData);
 
-//	printf("LLVMErrorHandler\n");
   Diags.Report(FullSourceLoc(), diag::err_fe_error_backend) << Message;
 
   // We cannot recover from llvm errors.
   exit(1);
 }
 
-CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource) {
-  llvm::sys::PrintStackTraceOnErrorSignal();
-  llvm::PrettyStackTraceProgram X(argc, argv);
-  llvm::LLVMContext &Context = llvm::getGlobalContext();
-  
-  
-  for(int i=0; i < argc; i++) {
-//	printf("%d: %s\n", i, argv[i]);
-  }
-  
-  llvm::cl::ParseCommandLineOptions(argc, argv,
-                              "LLVM 'Clang' Compiler: http://clang.llvm.org\n");
-  
-  TargetCPU.assign("yonah");
-  
-  llvm::InitializeAllTargets();
-  llvm::InitializeAllAsmPrinters();
-  
-  if (TimeReport)
-    ClangFrontendTimer = new llvm::Timer("Clang front-end time");
-  
-  if (Verbose)
-    fprintf(stderr, "clang-cc version 1.0 based upon " PACKAGE_STRING
-            " hosted on " LLVM_HOSTTRIPLE "\n");
+int clang_cc(int argc, char **argv) {
+	llvm::cl::ParseCommandLineOptions(argc, argv,
+					"LLVM 'Clang' Compiler: http://clang.llvm.org\n");
+
+
+	// Get information about the target being compiled for.
+	std::string Triple = llvm::sys::getHostTriple();
+	TargetInfo *Target = TargetInfo::CreateTargetInfo(Triple);
+
+	// Create a file manager object to provide access to and cache the filesystem.
+	FileManager FileMgr;
+
+	// Compute the feature set, unfortunately this effects the language!
+	llvm::StringMap<bool> Features;
+	std::string ccccc = TargetCPU;
+	Target->getDefaultFeatures(TargetCPU, Features);
+
+	TextDiagnosticBuffer DiagClient2;
+	Diagnostic Diags2(&DiagClient2);
+
+	const std::string &InFile = InputFilenames[0];
+	FILE *srcfile = fopen(InFile.data(), "r");
+	std::string csource;
+	char src_str[1024];
+	while(fgets(src_str, 1024, srcfile) != NULL) {
+		csource.append(src_str);
+	}	
+	fclose(srcfile);
 	
+	llvm::MemoryBuffer *buffer = llvm::MemoryBuffer::getMemBufferCopy(
+				csource.data(), 
+				csource.data() + csource.size(), 
+				"test");
+
+
+	/// Create a SourceManager object.  This tracks and owns all the file
+	/// buffers allocated to a translation unit.
+	SourceManager SourceMgr;
+
+	// Initialize language options, inferring file types from input filenames.
+	LangOptions LangInfo;
+	DiagClient2.setLangOptions(&LangInfo);
+
+	Target->getDefaultLangOptions(LangInfo);
+	Target->HandleTargetFeatures(Features);
+
+	LangInfo.C99 = 1;
+	LangInfo.HexFloats = 1;
+	LangInfo.BCPLComment = 1;  // Only for C99/C++.
+	LangInfo.Digraphs = 1;     // C94, C99, C++.
+	LangInfo.GNUMode = 1;
+	LangInfo.ImplicitInt = 0;
+	LangInfo.Trigraphs = !LangInfo.GNUMode;
+	LangInfo.DollarIdents = 1;
+	LangInfo.WritableStrings = 0;
+	LangInfo.Exceptions = 0;
+	LangInfo.Rtti = 1;
+	LangInfo.Bool = LangInfo.OpenCL | LangInfo.CPlusPlus;
+	LangInfo.MathErrno = 1;
+	LangInfo.InstantiationDepth = 99;
+	LangInfo.ObjCSenderDispatch = 0;
+	LangInfo.OptimizeSize = 0;
+	LangInfo.PICLevel = 0;
+	LangInfo.GNUInline = !LangInfo.C99;
+	LangInfo.NoInline = 1;
+	LangInfo.Static = 0;
+
+
+	// Process the -I options and set them in the HeaderInfo.
+	HeaderSearch HeaderInfo(FileMgr);
 	
-
-  // Create the diagnostic client for reporting errors or for
-  // implementing -verify.
-  llvm::OwningPtr<DiagnosticClient> DiagClient;
-  if (VerifyDiagnostics) {
-    // When checking diagnostics, just buffer them up.
-    DiagClient.reset(new TextDiagnosticBuffer());
-    if (!HTMLDiag.empty()) {
-      fprintf(stderr, "-verify and -html-diags don't work together\n");
-      return NULL;
-    }
-  } else if (HTMLDiag.empty()) {
-    // Print diagnostics to stderr by default.
-
-    // If -fmessage-length=N was not specified, determine whether this
-    // is a terminal and, if so, implicitly define -fmessage-length
-    // appropriately.
-    if (MessageLength.getNumOccurrences() == 0)
-      MessageLength.setValue(llvm::sys::Process::StandardErrColumns());
-
-    if (!NoColorDiagnostic) {
-      NoColorDiagnostic.setValue(!llvm::sys::Process::StandardErrHasColors());
-    }
-
-    DiagClient.reset(new TextDiagnosticPrinter(llvm::errs(),
-                                               !NoShowColumn,
-                                               !NoCaretDiagnostics,
-                                               !NoShowLocation,
-                                               PrintSourceRangeInfo,
-                                               PrintDiagnosticOption,
-                                               !NoDiagnosticsFixIt,
-                                               MessageLength,
-                                               !NoColorDiagnostic));
-  } else {
-    DiagClient.reset(CreateHTMLDiagnosticClient(HTMLDiag));
-  }
-  
-  if (!DumpBuildInformation.empty()) {
-    if (!HTMLDiag.empty()) {
-      fprintf(stderr,
-              "-dump-build-information and -html-diags don't work together\n");
-      return NULL;
-    }
-    
-    SetUpBuildDumpLog(argc, argv, DiagClient);
-  }
-  
-
-  // Configure our handling of diagnostics.
-  Diagnostic Diags(DiagClient.get());
-  if (ProcessWarningOptions(Diags, OptWarnings, OptPedantic, OptPedanticErrors,
-                            OptNoWarnings))
-    return NULL;
+	InitHeaderSearch initHeaders(HeaderInfo, true, std::string("/"));
+	initHeaders.AddDefaultEnvVarPaths(LangInfo);
+		
+	//InitializeIncludePaths(argv[0], HeaderInfo, FileMgr, LangInfo);
+						
+	// Add system search paths
+	initHeaders.AddDefaultSystemIncludePaths(LangInfo);
+	initHeaders.Realize();
 	
-	
+	Preprocessor PP(Diags2, LangInfo, *Target, SourceMgr, HeaderInfo);
+
+	PreprocessorInitOptions InitOpts;
+	if(InitializePreprocessor(PP, InitOpts)) {
+		printf("ERROR initializing preprocessor\n");
+	}
+
+
+	//InitializeSourceManager(PP, InFile);
+	SourceMgr.createMainFileIDForMemBuffer(buffer);
+
+	ASTContext context(PP.getLangOptions(), SourceMgr, 
+				PP.getTargetInfo(), 
+				PP.getIdentifierTable(), 
+				PP.getSelectorTable(), 
+				PP.getBuiltinInfo());
+				
+
 	CompileOptions copts; // e.g. optimizations
-	CodeGenerator * codegen = CreateLLVMCodeGen(Diags, std::string(srcname), copts, llvm::getGlobalContext());
+	CodeGenerator * codegen = CreateLLVMCodeGen(Diags2, "test", copts, llvm::getGlobalContext());
 
-  // Set an error handler, so that any LLVM backend diagnostics go through our
-  // error handler.
-  llvm::llvm_install_error_handler(LLVMErrorHandler,
-                                   static_cast<void*>(&Diags));
+	ParseAST(PP, codegen, context, false); // last flag is verbose statistics
+	llvm::Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
 
-  // -I- is a deprecated GCC feature, scan for it and reject it.
-  for (unsigned i = 0, e = I_dirs.size(); i != e; ++i) {
-    if (I_dirs[i] == "-") {
-		printf("ReportFullSourceLoc\n");
-      Diags.Report(FullSourceLoc(), diag::err_pp_I_dash_not_supported);      
-      I_dirs.erase(I_dirs.begin()+i);
-      --i;
-    }
-  }
 
-  // Get information about the target being compiled for.
-  std::string Triple = CreateTargetTriple();
-  llvm::OwningPtr<TargetInfo> Target(TargetInfo::CreateTargetInfo(Triple));
+	HeaderInfo.ClearFileInfo();
+	DiagClient2.setLangOptions(0);
   
-  if (Target == 0) {
-	printf("Target == 0\n");
-    Diags.Report(FullSourceLoc(), diag::err_fe_unknown_triple) 
-      << Triple.c_str();
-    return NULL;
-  }
-  
-  if (!InheritanceViewCls.empty())  // C++ visualization?
-    ProgAction = InheritanceView;
-    
-  llvm::OwningPtr<SourceManager> SourceMgr;
-  
-  // Create a file manager object to provide access to and cache the filesystem.
-  FileManager FileMgr;
 
-  // Compute the feature set, unfortunately this effects the language!
-  llvm::StringMap<bool> Features;
-  ComputeFeatureMap(Target.get(), Features);
+	delete ClangFrontendTimer;
+	delete BuildLogFile;
 
+	// If verifying diagnostics and we reached here, all is well.
+	if (VerifyDiagnostics)
+		return 0;
 
-	// TODO: Remove
-	// dummy file name for LangKind derivation 
-	std::string InFile("test.c");
-	
-    /// Create a SourceManager object.  This tracks and owns all the file
-    /// buffers allocated to a translation unit.
-    if (!SourceMgr)
-      SourceMgr.reset(new SourceManager());
-    else
-      SourceMgr->clearIDTables();
-    
-    // Initialize language options, inferring file types from input filenames.
-    LangOptions LangInfo;
-    DiagClient->setLangOptions(&LangInfo);
-    
-	
-	
-    InitializeBaseLanguage();
-    LangKind LK = GetLanguage(InFile);
-    
-	
-	
-	InitializeLangOptions(LangInfo, LK);
-    InitializeLanguageStandard(LangInfo, LK, Target.get(), Features);
-          
-    // Process the -I options and set them in the HeaderInfo.
-    HeaderSearch HeaderInfo(FileMgr);
-    
-    
-    InitializeIncludePaths(argv[0], HeaderInfo, FileMgr, LangInfo);
+	// Managed static deconstruction. Useful for making things like
+	llvm::llvm_shutdown();
 
-    // Set up the preprocessor with these options.
-    DriverPreprocessorFactory PPFactory(Diags, LangInfo, *Target,
-                                        *SourceMgr.get(), HeaderInfo);
-    
-    llvm::OwningPtr<Preprocessor> PP(PPFactory.CreatePreprocessor());
-          
-    if (!PP)
-		return NULL;
-
-    // Handle generating dependencies, if requested
-    if (!DependencyFile.empty()) {
-      llvm::raw_ostream *DependencyOS;
-      if (DependencyTargets.empty()) {
-        // FIXME: Use a proper diagnostic
-        llvm::cerr << "-dependency-file requires at least one -MT option\n";
-        HadErrors = true;
-        return NULL;
-      }
-      std::string ErrStr;
-      DependencyOS =
-          new llvm::raw_fd_ostream(DependencyFile.c_str(), false, true, ErrStr);
-		  
-      if (!ErrStr.empty()) {
-        // FIXME: Use a proper diagnostic
-        llvm::cerr << "unable to open dependency file: " + ErrStr;
-        HadErrors = true;
-        return NULL;
-      }
-
-      AttachDependencyFileGen(PP.get(), DependencyOS, DependencyTargets,
-                              DependenciesIncludeSystemHeaders,
-                              PhonyDependencyTarget);
-    }
-
-    if (ImplicitIncludePCH.empty()) {
-		if (InitializeSourceManager(*PP.get(), InFile, srcname, csource))
-			return NULL;
-    
-      // Initialize builtin info.
-      PP->getBuiltinInfo().InitializeBuiltins(PP->getIdentifierTable(),
-                                              PP->getLangOptions().NoBuiltin);
-    }
-
-    if (!HTMLDiag.empty())
-      ((PathDiagnosticClient*)DiagClient.get())->SetPreprocessor(PP.get());
-
-    // Process the source file.
-    ProcessInputFile(*PP, PPFactory, InFile, ProgAction, Features, Context, srcname, csource, codegen);
-    
-    HeaderInfo.ClearFileInfo();
-    DiagClient->setLangOptions(0);
-	
-	
-	
-	
-
-  if (!NoCaretDiagnostics)
-    if (unsigned NumDiagnostics = Diags.getNumDiagnostics())
-      fprintf(stderr, "%d diagnostic%s generated.\n", NumDiagnostics,
-              (NumDiagnostics == 1 ? "" : "s"));
-  
-  if (Stats) {
-    FileMgr.PrintStats();
-    fprintf(stderr, "\n");
-  }
-
-  delete ClangFrontendTimer;
-  delete BuildLogFile;
-  
-  // If verifying diagnostics and we reached here, all is well.
-  if (VerifyDiagnostics)
-    return 0;
-  
-  // Managed static deconstruction. Useful for making things like
-  // -time-passes usable.
-//  llvm::llvm_shutdown();
-
-  //return HadErrors || (Diags.getNumErrors() != 0);
-  return codegen;
+	return HadErrors || (Diags2.getNumErrors() != 0);
 }
