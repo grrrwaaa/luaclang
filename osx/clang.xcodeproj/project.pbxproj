@@ -740,7 +740,6 @@
 		365B30EF109161E500DE5207 /* luaconf.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = luaconf.h; path = /usr/local/include/luaconf.h; sourceTree = "<absolute>"; };
 		365B30F0109161E500DE5207 /* lualib.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = lualib.h; path = /usr/local/include/lualib.h; sourceTree = "<absolute>"; };
 		3682E42310BF2F62009ED8B3 /* test_cc.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_cc.lua; sourceTree = "<group>"; };
-		36A13E8C10BE63FB005837FF /* clang-cc.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = "clang-cc.cpp"; sourceTree = "<group>"; };
 		36D6C7D310FE80EF0033B3E3 /* luaclang_compiler.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = luaclang_compiler.h; sourceTree = "<group>"; };
 		36DED56D10AE0D8800686F06 /* test_ast.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = test_ast.lua; sourceTree = "<group>"; };
 		36DED57610AE0DB300686F06 /* ast.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = ast.lua; sourceTree = "<group>"; };
@@ -884,7 +883,6 @@
 				364002DE1091557700C4D35B /* luaopen_clang.h */,
 				36D6C7D310FE80EF0033B3E3 /* luaclang_compiler.h */,
 				364002DF1091557700C4D35B /* luaopen_clang.cpp */,
-				36A13E8C10BE63FB005837FF /* clang-cc.cpp */,
 				36283D3A10B0F38E0082B68D /* luaclang.luadoc */,
 			);
 			name = src;
