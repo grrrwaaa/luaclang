@@ -28,63 +28,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 */
 
-
-#include "clang/Analysis/PathDiagnostic.h"
-#include "clang/AST/ASTContext.h"
-#include "clang/AST/Decl.h"
-#include "clang/Basic/Builtins.h"
-#include "clang/Basic/Diagnostic.h"
-#include "clang/Basic/TargetInfo.h"
-#include "clang/Basic/SourceManager.h"
-#include "clang/Basic/FileManager.h"
-#include "clang/CodeGen/ModuleBuilder.h"
-#include "clang/Driver/Driver.h"
-#include "clang/Frontend/CompileOptions.h"
-#include "clang/Frontend/InitHeaderSearch.h"
-#include "clang/Frontend/InitPreprocessor.h"
-#include "clang/Frontend/TextDiagnosticBuffer.h"
-#include "clang/Frontend/TextDiagnosticPrinter.h"
-#include "clang/Lex/HeaderSearch.h"
-#include "clang/Lex/Preprocessor.h"
-#include "clang/Sema/ParseAST.h"
-
-#include "llvm/ADT/OwningPtr.h"
-#include "llvm/ADT/SmallPtrSet.h"
-#include "llvm/ADT/SmallString.h"
-#include "llvm/ADT/StringExtras.h"
-#include "llvm/Analysis/Verifier.h"
-#include "llvm/Bitcode/ReaderWriter.h"
-#include "llvm/Analysis/Verifier.h"
-#include "llvm/Config/config.h"
-#include "llvm/DerivedTypes.h"
-#include "llvm/ExecutionEngine/ExecutionEngine.h"
-#include "llvm/ExecutionEngine/GenericValue.h"
-#include "llvm/ExecutionEngine/JIT.h"
-#include "llvm/ExecutionEngine/JITEventListener.h"
-#include "llvm/Linker.h"
-#include "llvm/Module.h"
-#include "llvm/ModuleProvider.h"
-#include "llvm/Target/TargetData.h"
-#include "llvm/Target/TargetSelect.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/Type.h"
-#include "llvm/PassManager.h"
-#include "llvm/Support/Allocator.h"
-#include "llvm/Support/DataTypes.h"
-#include "llvm/Support/IRBuilder.h"
-#include "llvm/Support/ManagedStatic.h"
-#include "llvm/Support/MemoryBuffer.h"
-#include "llvm/Support/PassNameParser.h"
-#include "llvm/Support/PrettyStackTrace.h"
-#include "llvm/Support/raw_ostream.h"
-#include "llvm/System/DynamicLibrary.h"
-#include "llvm/System/Host.h"
-#include "llvm/System/Path.h"
-#include "llvm/System/Signals.h"
-#include "llvm/Transforms/IPO.h"
-#include "llvm/Transforms/Scalar.h"
-#include "llvm/ValueSymbolTable.h"
-
 #include <string>
 #include <sstream>
 #include <iostream>
@@ -94,8 +37,8 @@ THE SOFTWARE.
 #include <list>
 #include <set>
 
-#include "luaglue.h"
 #include "luaopen_clang.h"
+#include "luaclang_compiler.h"
 
 #if defined(WIN32) || defined(__WINDOWS_MM__)
 	#define LUA_CLANG_WIN32 1
@@ -357,8 +300,14 @@ static void optimize_module(Module * M, bool DisableOptimizations, bool DisableI
 */
 #pragma mark EE
 static ExecutionEngine * EE = 0;
+
 ExecutionEngine * getEE() {
 	return EE;
+}
+
+void * lazyfunctioncreator(const std::string & str) {
+	printf("can't find function to jit %s\n", str.data()); 
+	return NULL;
 }
 
 class LuaclangJITEventListener : public JITEventListener {
@@ -396,6 +345,8 @@ ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 			false	// allocate GlobalVariables separately from code
 		);
 		
+		printf("new ExecutionEngine %p\n", EE);
+		
 //		// this is how unladen swallow does it:
 //		engine_ = llvm::ExecutionEngine::create(
 //			module_provider_,
@@ -415,21 +366,29 @@ ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
 		
 		// turn this off when not debugging:
 		EE->RegisterJITEventListener(&gLuaclangJITEventListener);
+		//EE->InstallLazyFunctionCreator(lazyfunctioncreator);
+		EE->DisableLazyCompilation(true);
+		//EE->DisableGVCompilation();
 		
 		// When we ask to JIT a function, we should also JIT other
 		// functions that function depends on.  This would let us JIT in a
 		// background thread to avoid blocking the main thread during
 		// codegen.
-		EE->DisableLazyCompilation();
+		//EE->DisableLazyCompilation();
 		
-		// Fill the ExecutionEngine with the addresses of known global variables.
-		for (Module::global_iterator it = module->global_begin();
-			it != module->global_end(); ++it) {
-			EE->getOrEmitGlobalVariable(it);
-		}
+
 	} else {
 		EE->addModuleProvider(emp);
 	}
+	
+//	// Fill the ExecutionEngine with the addresses of known global variables.
+//	for (Module::global_iterator it = module->global_begin();
+//		it != module->global_end(); ++it) {
+//		EE->getOrEmitGlobalVariable(it);
+//	}
+	
+	// run all static constructors:
+	EE->runStaticConstructorsDestructors(emp->getModule(), false);
 	
 	// I guess we should do this:
 	module->setTargetTriple(llvm::sys::getHostTriple());
@@ -657,95 +616,101 @@ template<> void Glue<ExecutionEngine>::usr_mt(lua_State * L) {
 
 /* 
 	Module
+		(removed, since everything happens through ModuleProvider anyway)
 */
 #pragma mark Module
-template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
-	std::stringstream s;
-	u->print(s, 0);
-	lua_pushfstring(L, "%s", s.str().c_str());
-	return 1;
-}
-
-template<> const char * Glue<Module>::usr_name() { return "Module"; }
-template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
-	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
-	return 1;
-}
-template<> Module * Glue<Module>::usr_new(lua_State * L) {
-	const char * modulename = luaL_checkstring(L, 1);
-	Module * M = new Module(modulename, getGlobalContext()); 
-	createModuleProviderFromJIT(L, M);
-	return M;
-}
-template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
-	getEE()->clearGlobalMappingsFromModule(u);
-	//getEE()->deleteModuleProvider(...);
-}
-template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
-static int module_linkto(lua_State * L) {
-	std::string err;
-	Module * self = Glue<Module>::checkto(L, 1);
-	Module * mod = Glue<Module>::checkto(L, 2);
-	llvm::Linker::LinkModules(self, mod, &err);
-	if (err.length())
-		luaL_error(L, err.c_str());
-	// mod can't be used anymore, as it has been subsumed into self:
-	lua_pushnil(L);
-	lua_setmetatable(L, 2);
-	return 0;
-}
-
-int module_writeBitcodeFile(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-	WriteBitcodeToFile(m, ofile);
-	ofile.close();
-	return 0;
-}
-
-static int module_dump(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	m->dump();
-	return 0;
-}
-
-int module_addTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_checkstring(L, 3);
-	lua_pushboolean(L, m->addTypeName(name, ty));
-	return 1;
-}
-int module_getTypeName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, m->getTypeName(ty).c_str());
-	return 1;
-}
-int module_getTypeByName(lua_State * L) {
-	Module * m = Glue<Module>::checkto(L, 1);
-	const char * name = luaL_checkstring(L, 2);
-	const Type * t = m->getTypeByName(name);
-	if (t == 0)
-		return luaL_error(L, "Type %s not found", name);
-	return Glue<Type>::push(L, (Type *)t);
-}
-int module_optimize(lua_State * L) {
-	Module * M = Glue<Module>::checkto(L, 1);
-	bool DisableOptimizations = lua_toboolean(L, 2);
-	bool DisableInline = lua_toboolean(L, 3);
-	optimize_module(M, DisableOptimizations, DisableInline);
-	return 0;
-}
-template<> void Glue<Module> :: usr_mt(lua_State * L) {
-	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
-	lua_pushcfunction(L, module_optimize); lua_setfield(L, -2, "optimize");
-	lua_pushcfunction(L, module_dump); lua_setfield(L, -2, "dump");
-	lua_pushcfunction(L, module_addTypeName); lua_setfield(L, -2, "addTypeName");
-	lua_pushcfunction(L, module_getTypeName); lua_setfield(L, -2, "getTypeName");
-	lua_pushcfunction(L, module_getTypeByName); lua_setfield(L, -2, "getTypeByName");
-	lua_pushcfunction(L, module_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
-}
+//template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
+//	std::stringstream s;
+//	u->print(s, 0);
+//	lua_pushfstring(L, "%s", s.str().c_str());
+//	return 1;
+//}
+//
+//template<> const char * Glue<Module>::usr_name() { return "Module"; }
+//template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
+//	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
+//	return 1;
+//}
+//template<> Module * Glue<Module>::usr_new(lua_State * L) {
+//	const char * modulename = luaL_checkstring(L, 1);
+//	Module * M = new Module(modulename, getGlobalContext()); 
+//	createModuleProviderFromJIT(L, M);
+//	return M;
+//}
+//template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
+//	printf("gc module %s\n", u->getModuleIdentifier().data());
+//	getEE()->clearGlobalMappingsFromModule(u);
+//	
+//	// run all static destructors:
+//	EE->runStaticConstructorsDestructors(u, true);
+//	
+//	//getEE()->deleteModuleProvider(...);
+//}
+//template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
+//static int module_linkto(lua_State * L) {
+//	std::string err;
+//	Module * self = Glue<Module>::checkto(L, 1);
+//	Module * mod = Glue<Module>::checkto(L, 2);
+//	llvm::Linker::LinkModules(self, mod, &err);
+//	if (err.length())
+//		luaL_error(L, err.c_str());
+//	// mod can't be used anymore, as it has been subsumed into self:
+//	lua_pushnil(L);
+//	lua_setmetatable(L, 2);
+//	return 0;
+//}
+//
+//int module_writeBitcodeFile(lua_State * L) {
+//	Module * m = Glue<Module>::checkto(L, 1);
+//	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
+//	WriteBitcodeToFile(m, ofile);
+//	ofile.close();
+//	return 0;
+//}
+//
+//static int module_dump(lua_State * L) {
+//	Module * m = Glue<Module>::checkto(L, 1);
+//	m->dump();
+//	return 0;
+//}
+//
+//int module_addTypeName(lua_State * L) {
+//	Module * m = Glue<Module>::checkto(L, 1);
+//	const Type * ty = Glue<Type>::checkto(L, 2);
+//	const char * name = luaL_checkstring(L, 3);
+//	lua_pushboolean(L, m->addTypeName(name, ty));
+//	return 1;
+//}
+//int module_getTypeName(lua_State * L) {
+//	Module * m = Glue<Module>::checkto(L, 1);
+//	const Type * ty = Glue<Type>::checkto(L, 2);
+//	lua_pushstring(L, m->getTypeName(ty).c_str());
+//	return 1;
+//}
+//int module_getTypeByName(lua_State * L) {
+//	Module * m = Glue<Module>::checkto(L, 1);
+//	const char * name = luaL_checkstring(L, 2);
+//	const Type * t = m->getTypeByName(name);
+//	if (t == 0)
+//		return luaL_error(L, "Type %s not found", name);
+//	return Glue<Type>::push(L, (Type *)t);
+//}
+//int module_optimize(lua_State * L) {
+//	Module * M = Glue<Module>::checkto(L, 1);
+//	bool DisableOptimizations = lua_toboolean(L, 2);
+//	bool DisableInline = lua_toboolean(L, 3);
+//	optimize_module(M, DisableOptimizations, DisableInline);
+//	return 0;
+//}
+//template<> void Glue<Module> :: usr_mt(lua_State * L) {
+//	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
+//	lua_pushcfunction(L, module_optimize); lua_setfield(L, -2, "optimize");
+//	lua_pushcfunction(L, module_dump); lua_setfield(L, -2, "dump");
+//	lua_pushcfunction(L, module_addTypeName); lua_setfield(L, -2, "addTypeName");
+//	lua_pushcfunction(L, module_getTypeName); lua_setfield(L, -2, "getTypeName");
+//	lua_pushcfunction(L, module_getTypeByName); lua_setfield(L, -2, "getTypeByName");
+//	lua_pushcfunction(L, module_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
+//}
 
 /* 
 	ModuleProvider
@@ -765,20 +730,32 @@ template<> ModuleProvider * Glue<ModuleProvider>::usr_new(lua_State * L) {
 }
 template<> void Glue<ModuleProvider>::usr_gc(lua_State * L, ModuleProvider * mp) {
 //	printf("~module %p\n", mp);
-	ExecutionEngine * ee = getEE();
-	ee->clearGlobalMappingsFromModule(mp->getModule());
-	//ee->deleteModuleProvider(mp);
 	std::string err;
-	// TODO: Fix crash
-	Module * m = ee->removeModuleProvider(mp, &err);
-//	printf("removed %s\n", err.data());
+	ExecutionEngine * ee = getEE();
+	Module * m = mp->getModule();
+	if (m) {
+		ee->runStaticConstructorsDestructors(m, true);
+		ee->clearGlobalMappingsFromModule(m);
+		
+		// iterate functions and remove from EE:
+		for (Module::iterator i = m->begin(), e = m->end(); i != e; ++i) {
+			ee->freeMachineCodeForFunction(i);
+		}
+		
+		m->dropAllReferences();
+	}
+	ee->removeModuleProvider(mp, &err);
+	// this isn't safe, since we may be using things created in m:
+	//ee->deleteModuleProvider(mp);
+	
+	printf("removed %s %s\n", m->getModuleIdentifier().data(), err.data());
 //	delete m;
 }
-static int moduleprovider_module(lua_State * L) {
-	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
-	Glue<Module>::push(L, mp->getModule());
-	return 1;
-}
+//static int moduleprovider_module(lua_State * L) {
+//	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
+//	Glue<Module>::push(L, mp->getModule());
+//	return 1;
+//}
 static int moduleprovider_dump(lua_State * L) {
 	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
 	m->dump();
@@ -844,7 +821,7 @@ int moduleprovider_functions(lua_State * L) {
 }
 
 template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
-	lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
+	//lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
 	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
 	lua_pushcfunction(L, moduleprovider_addTypeName); lua_setfield(L, -2, "addTypeName");
 	lua_pushcfunction(L, moduleprovider_getTypeName); lua_setfield(L, -2, "getTypeName");
@@ -2107,6 +2084,8 @@ int readBitcodeFile(lua_State * L) {
 	}
 
 	Module * bitcodemodule = ParseBitcodeFile(buffer, (getGlobalContext()), &err);
+	delete buffer;
+	
 	if (err.size()) {
 		luaL_error(L, "%s: %s", filename.c_str(), err.c_str());
 	}
@@ -2188,278 +2167,8 @@ int addSearchPath(lua_State * L) {
 }
 
 
-class Compiler {
-public:
-	Compiler() {}
-	~Compiler() {ddebug("~Compiler\n");}
-	
-	char Oflag;						// -O0 .. -O4 
-	std::set<std::string> iflags;	// differentiate -i or -I ? and -F ?
-//	std::set<std::string> lflags;	// does a linker make sense for JIT ?
-	std::set<std::string> dflags;	// -D
-	std::set<std::string> wflags;	// -W
-//	std::set<std::string> mflags;	// -m
-//	std::set<std::string> fflags;	// -f
-//	// other flags: -x (language), -std (language standard), etc., -arch, -g (debug info), 
-	
-	static int compile(lua_State *L) {
-		Compiler * self = Glue<Compiler>::checkto(L, 1);
 
-		std::string csource = luaL_checkstring(L, 2);
-		std::string srcname = luaL_optstring(L, 3, "untitled");
-		//std::string isysroot = luaL_optstring(L, 4, "/Developer/SDKs/MacOSX10.4u.sdk");
-		std::string isysroot = luaL_optstring(L, 4, "/");
-		
-		
-		// todo: set include search paths
-		lua_settop(L, 0);
-		
-		// Souce to compile
-		MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
-		if(!buffer) {
-			luaL_error(L, "couldn't load %s\n", srcname.c_str());
-			return 0;
-		}
-		
-		// Diagnostics (warning/error handling)
-		TextDiagnosticBuffer client;
-		Diagnostic diags(&client);
-		
-		
-	//------------------------------------------------------
-	// Platform info
-		TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
-		
-		
-		llvm::StringMap<bool> Features;
-		//target->getDefaultFeatures(std::string("yonah"), Features); // detects SSE and other processor-specific settings
-		target->getDefaultFeatures(std::string(""), Features); // detects SSE and other processor-specific settings
-		target->HandleTargetFeatures(Features);	// sets SSELevel for x86 targets
-		
-		
-		uint64_t width = target->getPointerWidth(0);	// 32
-//		printf("getPointerWidth: %
-		printf("3DNOW: %s\n", Features.lookup(std::string("3dnow")) ? "TRUE" : "FALSE");
-		printf("3DNOWA: %s\n", Features.lookup(std::string("3dnowa")) ? "TRUE" : "FALSE");
-		printf("MMX: %s\n", Features.lookup(std::string("mmx")) ? "TRUE" : "FALSE");
-		printf("SSE: %s\n", Features.lookup(std::string("sse")) ? "TRUE" : "FALSE");
-		printf("SSE2: %s\n", Features.lookup(std::string("sse2")) ? "TRUE" : "FALSE");
-		printf("SSE3: %s\n", Features.lookup(std::string("sse3")) ? "TRUE" : "FALSE");
-		printf("SSSE3: %s\n", Features.lookup(std::string("ssse3")) ? "TRUE" : "FALSE");
-		printf("SSSE41: %s\n", Features.lookup(std::string("ssse41")) ? "TRUE" : "FALSE");
-		printf("SSSE42: %s\n", Features.lookup(std::string("ssse42")) ? "TRUE" : "FALSE");
-		
-
-		LangOptions lang;
-		client.setLangOptions(&lang);
-
-		// from clang-cc:684
-		// Allow the target to set the default the langauge options as it sees fit.
-		target->getDefaultLangOptions(lang);
-		lang.C99 = 1;
-		lang.HexFloats = 1;
-		lang.BCPLComment = 1;  // Only for C99/C++.
-		lang.Digraphs = 1;     // C94, C99, C++.
-		lang.Trigraphs = 0;	// UPDATE
-		// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
-		lang.GNUMode = 1;
-		lang.ImplicitInt = 0;
-		lang.DollarIdents = 1;
-		lang.LaxVectorConversions = 1;	// UPDATE
-		lang.WritableStrings = 0;
-		lang.Exceptions = 0;
-		lang.Rtti = 0;
-	//	lang.Rtti = 1;	// UPDATE
-		lang.NoBuiltin = 0;	// UPDATE
-		
-		lang.Bool = 0;
-		lang.MathErrno = 0;
-	//	lang.MathErrno = 1;	// UPDATE
-		lang.InstantiationDepth = 99;
-		lang.OptimizeSize = 0;
-		lang.PICLevel = 1;
-	//	lang.PICLevel = 0;	// UPDATE
-		lang.GNUInline = 0;
-		lang.NoInline = 1;
-		lang.Static = 0;
-
-	//------------------------------------------------------
-	// Search paths
-		FileManager fm;
-		HeaderSearch headers(fm);
-
-		bool verbose_headers = false;
-	#ifdef LUA_CLANG_OSX
-		InitHeaderSearch initHeaders(headers, verbose_headers, isysroot);
-	#else
-		InitHeaderSearch initHeaders(headers, verbose_headers);
-	#endif
-
-//		for(unsigned int i=0; i < self->iflags.size(); ++i) {
-		for(std::set<std::string>::iterator it  = self->iflags.begin();
-			it != self->iflags.end();
-			++it) 
-		{
-			initHeaders.AddPath(*it, 
-								InitHeaderSearch::Angled, 
-								false, 
-								true, 
-								false);
-		}
-		
-		initHeaders.AddDefaultEnvVarPaths(lang);
-		
-		// Add system search paths
-		initHeaders.AddDefaultSystemIncludePaths(lang);
-		initHeaders.Realize();
-		
-	//------------------------------------------------------
-	// Preprocessor 
-
-		SourceManager sm;
-		Preprocessor pp(diags, lang, *target, sm, headers);
-		
-		// TODO: verify correctness of this
-		std::string predefines;
-		for(std::set<std::string>::iterator it  = self->dflags.begin();
-			it != self->dflags.end();
-			++it) 
-		{
-			predefines.append("\n");
-			predefines.append(*it);
-		}
-//		pp.setPredefines(predefines);
-		
-		PreprocessorInitOptions InitOpts;
-		if(InitializePreprocessor(pp, InitOpts)) {
-			printf("ERROR initializing preprocessor\n");
-		}
-		
-		/*
-		// NECESSARY???
-		pp->getBuiltinInfo().InitializeBuiltins(pp->getIdentifierTable(),
-                                              pp->getLangOptions().NoBuiltin);
-		*/
-
-	//------------------------------------------------------
-	// Source compilation
-		sm.createMainFileIDForMemBuffer(buffer);
-
-		ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), pp.getIdentifierTable(), pp.getSelectorTable(), pp.getBuiltinInfo());
-		CompileOptions copts; // e.g. optimizations
-		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
-		
-		ParseAST(pp, codegen, context, false); // last flag is verbose statistics
-		Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
-		if (cmodule) {
-			//lua_pushboolean(L, true);
-			Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
-		} else {
-			lua_pushboolean(L, false);
-			lua_insert(L, 1);
-			// diagnose?
-	//		unsigned count = diags.getNumDiagnostics();
-	//		return count+1;
-			unsigned count = 0;
-			for(TextDiagnosticBuffer::const_iterator it = client.err_begin();
-				it != client.err_end();
-				++it)
-			{
-				FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
-				int LineNum = SourceLoc.getInstantiationLineNumber();
-				int ColNum = SourceLoc.getInstantiationColumnNumber();
-				int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
-
-				std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
-				char errstr[128];
-				int start = (FileOffset < 10) ? 0 : FileOffset-10;
-				strncpy(errstr, LocBD.first+start, 10);
-				errstr[10] = '^';
-				strncpy(errstr+11, LocBD.first+start+10, 10);
-				errstr[21] = '\0';			
-
-				lua_pushfstring(L, "Error: %s %d:%d\n'%s'\n%s\n", 
-									SourceLoc.getManager().getBufferName(SourceLoc),
-									LineNum, ColNum, 
-									errstr,
-									it->second.data());
-				count++;
-				
-				if(count > 250) break;
-			}
-
-			for(TextDiagnosticBuffer::const_iterator it = client.warn_begin();
-				it != client.warn_end();
-				++it)
-			{
-				FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
-				int LineNum = SourceLoc.getInstantiationLineNumber();
-				int ColNum = SourceLoc.getInstantiationColumnNumber();
-				int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
-
-				std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
-				char errstr[128];
-				int start = (FileOffset < 10) ? 0 : FileOffset-10;
-				strncpy(errstr, LocBD.first+start, 10);
-				errstr[10] = '^';
-				strncpy(errstr+11, LocBD.first+start+10, 10);
-				errstr[21] = '\0';
-
-				lua_pushfstring(L, "Warning: %s %d:%d\n'%s'\n%s\n",
-									SourceLoc.getManager().getBufferName(SourceLoc),
-									LineNum, ColNum, 
-									errstr,
-									it->second.data());
-				count++;
-				
-				if(count > 250) break;
-			}
-
-			return count+1;
-		}
-
-		delete codegen;
-		delete target;
-		return 1;
-	}
-	
-	static int include(lua_State * L) {	
-		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 2);
-		self->iflags.insert(str);
-		return 0;
-	}
-	
-	static int define(lua_State * L) {	
-		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 2);
-		self->dflags.insert(str);
-		return 0;
-	}
-	
-	static int warning(lua_State * L) {	
-		Compiler * self = Glue<Compiler>::checkto(L, 1);
-		std::string str = luaL_checkstring(L, 2);
-		self->wflags.insert(str);
-		return 0;
-	}
-};
-
-template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
-
-template <> Compiler * Glue<Compiler>::usr_new(lua_State * L) {
-	return new Compiler();
-}
-template <> void Glue<Compiler>::usr_gc(lua_State * L, Compiler * self) {
-	delete self;
-}
-template <> void Glue<Compiler>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, Compiler::compile);		lua_setfield(L, -2, "compile");
-	lua_pushcfunction(L, Compiler::include);		lua_setfield(L, -2, "include");
-	lua_pushcfunction(L, Compiler::warning);		lua_setfield(L, -2, "warning");
-	lua_pushcfunction(L, Compiler::define);			lua_setfield(L, -2, "define");
-}
-
+#pragma mark compile
 int compile(lua_State * L) {
 
 	std::string csource = luaL_checkstring(L, 1);
@@ -2681,7 +2390,8 @@ int lua_clang_cc(lua_State *L) {
 //	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
 
 
-	const char *args[] = {};
+	const char *args[] = {
+	};
 	
 	clang_cc(5, (char **)args);
 
@@ -2745,6 +2455,55 @@ int lua_clang_cc(lua_State *L) {
 	return 1;
 }
 
+/* 
+	It's not safe to do anything with EE here, in case any other independent lua_State is also using the singleton EE pointer. 
+	The question is, how can we be sure that the EE has released all memory associated with this script?
+*/
+int luaclose_clang(lua_State * L) {
+	if (EE) {
+//		EE->clearAllGlobalMappings();
+//		EE->UnregisterJITEventListener(&gLuaclangJITEventListener);
+//		delete EE;
+//		EE = 0;
+	}
+	return 0;
+}
+
+/*
+	get a callback when the value at stack index idx is collected:
+*/
+static void gc_sentinel(lua_State * L, int idx, lua_CFunction callback) {
+
+	lua_pushvalue(L, idx); // value @idx
+	lua_newuserdata(L, sizeof(void *)); // sentinel userdata
+		lua_newtable(L);	// userdata metatable with __gc = callback
+		lua_pushcfunction(L, callback);
+
+		lua_setfield(L, -2, "__gc");
+		lua_setmetatable(L, -2);
+
+	/* check for (weak-valued) sentinel table; create if needed */
+	lua_getfield(L, LUA_REGISTRYINDEX, "module_gc_sentinels");
+	if (lua_isnoneornil(L, -1)) {
+		lua_pop(L, 1);
+		lua_newtable(L);
+
+		// make weak-keyed
+		lua_pushstring(L, "v");
+		lua_setfield(L, -2, "__mode");
+		lua_pushvalue(L, -1);
+		lua_setfield(L, -2, "__index");
+		lua_pushvalue(L, -1);
+		lua_setmetatable(L, -2);
+		lua_pushvalue(L, -1);
+		lua_setfield(L, LUA_REGISTRYINDEX, "module_gc_sentinels");
+	}
+
+	lua_insert(L, -3);
+	lua_insert(L, -2);
+	lua_settable(L, -3); // lua::sentinel[value @idx] = sentinel userdata
+	lua_pop(L, 1); // lua::sentinel
+}
 
 int luaopen_clang(lua_State * L) {
 
@@ -2777,7 +2536,7 @@ int luaopen_clang(lua_State * L) {
 	
 	//lua::dump(L, "luaopen_clang lib");
 	
-	Glue<llvm::Module>::define(L);			Glue<llvm::Module>::register_ctor(L);
+	//Glue<llvm::Module>::define(L);			Glue<llvm::Module>::register_ctor(L);
 	Glue<llvm::ModuleProvider>::define(L);	Glue<llvm::ModuleProvider>::register_ctor(L);
 	
 	Glue<llvm::Type>::define(L);			Glue<llvm::Type>::register_table(L);
@@ -2826,6 +2585,8 @@ int luaopen_clang(lua_State * L) {
 //	lua_insert(L, 1);
 //	Glue<llvm::Module>::create(L);
 //	lua_setfield(L, -2, "main");
+
+	gc_sentinel(L, lua_gettop(L), luaclose_clang); 
 	
 	return 1;
 }
