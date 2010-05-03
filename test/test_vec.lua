@@ -1,7 +1,22 @@
+-- let Lua also search relative to this script:
+local path = arg and string.match(arg[0], ".+/") or (script.path .. "/")
+package.path = string.format("%s?.lua;%s?/init.lua;%s", path, path, package.path)
+package.cpath = string.format("%s?.so;%s", path, package.cpath)
+
 
 -- define a new vector type:
 
-local def = header_prefix .. [==[
+local def = [==[
+
+#include <stdlib.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
+#include "lua.h"
+#include "lualib.h"
+#include "lauxlib.h"
 
 typedef struct { double x, y, z } vec;
 
@@ -50,25 +65,30 @@ extern int luaopen_vec(lua_State * L) {
 
 ]==]
 
-local m = assert(clang.compile(def))
-m:optimize()
-m:dump()
+require "clang"
+local C = clang.Compiler()
+C:include(app.resourcepath .. "/Headers")
+C:include(app.resourcepath .. "/Headers/clang/1.0/include")
 
-local ee = clang.ExecutionEngine
-local function call(...)
-	return ee.call(m, ...)
+local m = assert(C:compile(def))
+m:optimize()
+--m:dump()
+
+function preload(m, name)
+	local loadername = "luaopen_"..name
+	package.preload[name] = m:pushluafunction(loadername) or package.preload[loadername]
 end
 
-table.insert(package.loaders, function(name)
-	local loadername = "luaopen_"..name
-	local F = clang.Function(m, loadername)
-	if F then return ee.pushluafunction(m, loadername) end
-	return "\n\tnot found in clang"
-end)
-
+preload(m, "vec")
 require "vec"
+
 local v = vec.new(10, 20, 30)
 print("v:", v)
 
+for k, v in pairs(m:functions()) do print(k) end
 
-
+--[[
+-- this crashes, since things in 'm' are still being used
+m = nil
+collectgarbage()
+--]]

@@ -38,12 +38,6 @@ end
 local v = call("vec_new", 1, 2, 3)
 call("vec_dump", v)
 print(v)
-
-
-for k, v in pairs(m:functions()) do
-	print("function", k)
-end
-
 --[[
 local q = call("quat_new", 4, v)
 call("quat_dump", q)
