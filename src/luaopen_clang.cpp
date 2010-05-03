@@ -37,8 +37,72 @@ THE SOFTWARE.
 #include <list>
 #include <set>
 
-#include "luaopen_clang.h"
-#include "luaclang_compiler.h"
+extern "C" {
+	#include "lua.h"
+	#include "lualib.h"
+	#include "lauxlib.h"
+
+	extern int luaopen_clang(lua_State * L);
+	extern int luaopen_clang_llvm(lua_State * L);
+}
+
+#include "clang/Analysis/PathDiagnostic.h"
+#include "clang/AST/ASTContext.h"
+#include "clang/AST/Decl.h"
+#include "clang/Basic/Builtins.h"
+#include "clang/Basic/Diagnostic.h"
+#include "clang/Basic/TargetInfo.h"
+#include "clang/Basic/SourceManager.h"
+#include "clang/Basic/FileManager.h"
+#include "clang/CodeGen/ModuleBuilder.h"
+#include "clang/Driver/Driver.h"
+#include "clang/Frontend/CompileOptions.h"
+#include "clang/Frontend/InitHeaderSearch.h"
+#include "clang/Frontend/InitPreprocessor.h"
+#include "clang/Frontend/TextDiagnosticBuffer.h"
+#include "clang/Frontend/TextDiagnosticPrinter.h"
+#include "clang/Lex/HeaderSearch.h"
+#include "clang/Lex/Preprocessor.h"
+#include "clang/Sema/ParseAST.h"
+
+#include "llvm/ADT/OwningPtr.h"
+#include "llvm/ADT/SmallPtrSet.h"
+#include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/StringExtras.h"
+#include "llvm/Analysis/Verifier.h"
+#include "llvm/Bitcode/ReaderWriter.h"
+#include "llvm/Analysis/Verifier.h"
+#include "llvm/Config/config.h"
+#include "llvm/DerivedTypes.h"
+#include "llvm/ExecutionEngine/ExecutionEngine.h"
+#include "llvm/ExecutionEngine/GenericValue.h"
+#include "llvm/ExecutionEngine/JIT.h"
+#include "llvm/ExecutionEngine/JITEventListener.h"
+#include "llvm/Linker.h"
+#include "llvm/Module.h"
+#include "llvm/ModuleProvider.h"
+#include "llvm/Target/TargetData.h"
+#include "llvm/Target/TargetSelect.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/Type.h"
+#include "llvm/PassManager.h"
+#include "llvm/Support/Allocator.h"
+#include "llvm/Support/DataTypes.h"
+#include "llvm/Support/IRBuilder.h"
+#include "llvm/Support/ManagedStatic.h"
+#include "llvm/Support/MemoryBuffer.h"
+#include "llvm/Support/PassNameParser.h"
+#include "llvm/Support/PrettyStackTrace.h"
+#include "llvm/Support/raw_ostream.h"
+#include "llvm/System/DynamicLibrary.h"
+#include "llvm/System/Host.h"
+#include "llvm/System/Path.h"
+#include "llvm/System/Signals.h"
+#include "llvm/Transforms/IPO.h"
+#include "llvm/Transforms/Scalar.h"
+#include "llvm/ValueSymbolTable.h"
+
+#include "luaglue.h"
 
 #if defined(WIN32) || defined(__WINDOWS_MM__)
 	#define LUA_CLANG_WIN32 1
@@ -58,9 +122,6 @@ THE SOFTWARE.
 #define ddebug(...) 
 //#define ddebug(...) printf(__VA_ARGS__)
 
-extern llvm::ExecutionEngine * getEE();
-extern llvm::ModuleProvider * createModuleProviderFromJIT(lua_State * L, llvm::Module * module);
-
 // used by almost all LLVM types:
 template<typename T>
 int llvm_print(lua_State * L, T * u) {
@@ -70,248 +131,40 @@ int llvm_print(lua_State * L, T * u) {
 	return 1;
 }
 
+void llvmErrorHandler(void * userdata, const std::string &Message) {
+	std::cerr << "llvm error:" << Message;
+}
+
 using namespace llvm;
-struct ForceJITLinking forcejitlinking;
+
+class Compiler;
 
 /* 
-	Optimize
+	Statics
 */
+#pragma mark Statics
 
-// A utility function that adds a pass to the pass manager but will also add
-// a verifier pass after if we're supposed to verify.
-static inline void addPass(PassManager &PM, Pass *P) {
-	// Add the pass to the pass manager...
-	PM.add(P);
-//	// If we are verifying all of the intermediate steps, add the verifier...
-//	if (VerifyEach)
-//		PM.add(createVerifierPass());
-}
-//
-//void
-//PyGlobalLlvmData::InitializeOptimizations()
-//{
-//    optimizations_[0] = new FunctionPassManager(this->module_provider_);
-//
-//    FunctionPassManager *quick =
-//        new FunctionPassManager(this->module_provider_);
-//    optimizations_[1] = quick;
-//    quick->add(new llvm::TargetData(*engine_->getTargetData()));
-//    quick->add(llvm::createPromoteMemoryToRegisterPass());
-//    quick->add(llvm::createInstructionCombiningPass());
-//    quick->add(llvm::createCFGSimplificationPass());
-//    quick->add(llvm::createVerifierPass());
-//
-//    // This is the default optimization used by the JIT. Higher levels
-//    // are for experimentation.
-//    FunctionPassManager *O2 =
-//        new FunctionPassManager(this->module_provider_);
-//    optimizations_[2] = O2;
-//    O2->add(new llvm::TargetData(*engine_->getTargetData()));
-//    O2->add(llvm::createCFGSimplificationPass());
-//    O2->add(PyCreateSingleFunctionInliningPass());
-//    O2->add(llvm::createJumpThreadingPass());
-//    O2->add(llvm::createPromoteMemoryToRegisterPass());
-//    O2->add(llvm::createInstructionCombiningPass());
-//    O2->add(llvm::createCFGSimplificationPass());
-//    O2->add(llvm::createScalarReplAggregatesPass());
-//    O2->add(CreatePyAliasAnalysis(*this));
-//    O2->add(llvm::createLICMPass());
-//    O2->add(llvm::createCondPropagationPass());
-//    O2->add(CreatePyAliasAnalysis(*this));
-//    O2->add(llvm::createGVNPass());
-//    O2->add(llvm::createSCCPPass());
-//    O2->add(llvm::createAggressiveDCEPass());
-//    O2->add(llvm::createCFGSimplificationPass());
-//    O2->add(llvm::createVerifierPass());
-//
-//
-//    // This is the list used by LLVM's opt tool's -O3 option.
-//    FunctionPassManager *optO3 =
-//        new FunctionPassManager(this->module_provider_);
-//    optimizations_[3] = optO3;
-//    optO3->add(new llvm::TargetData(*engine_->getTargetData()));
-//
-//    using namespace llvm;
-//    // Commented lines are SCC or ModulePasses, which means they can't
-//    // be added to our FunctionPassManager.  TODO: Figure out how to
-//    // run them on a function at a time anyway.
-//    optO3->add(createCFGSimplificationPass());
-//    optO3->add(createScalarReplAggregatesPass());
-//    optO3->add(createInstructionCombiningPass());
-//    //optO3->add(createRaiseAllocationsPass());   // call %malloc -> malloc inst
-//    optO3->add(createCFGSimplificationPass());       // Clean up disgusting code
-//    optO3->add(createPromoteMemoryToRegisterPass()); // Kill useless allocas
-//    //optO3->add(createGlobalOptimizerPass());       // OptLevel out global vars
-//    //optO3->add(createGlobalDCEPass());          // Remove unused fns and globs
-//    //optO3->add(createIPConstantPropagationPass()); // IP Constant Propagation
-//    //optO3->add(createDeadArgEliminationPass());   // Dead argument elimination
-//    optO3->add(createInstructionCombiningPass());   // Clean up after IPCP & DAE
-//    optO3->add(createCFGSimplificationPass());      // Clean up after IPCP & DAE
-//    //optO3->add(createPruneEHPass());               // Remove dead EH info
-//    //optO3->add(createFunctionAttrsPass());         // Deduce function attrs
-//    optO3->add(PyCreateSingleFunctionInliningPass());
-//    //optO3->add(createFunctionInliningPass());      // Inline small functions
-//    //optO3->add(createArgumentPromotionPass());  // Scalarize uninlined fn args
-//    optO3->add(createSimplifyLibCallsPass());    // Library Call Optimizations
-//    optO3->add(createInstructionCombiningPass());  // Cleanup for scalarrepl.
-//    optO3->add(createJumpThreadingPass());         // Thread jumps.
-//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
-//    optO3->add(createScalarReplAggregatesPass());  // Break up aggregate allocas
-//    optO3->add(createInstructionCombiningPass());  // Combine silly seq's
-//    optO3->add(createCondPropagationPass());       // Propagate conditionals
-//    optO3->add(createTailCallEliminationPass());   // Eliminate tail calls
-//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
-//    optO3->add(createReassociatePass());           // Reassociate expressions
-//    optO3->add(createLoopRotatePass());            // Rotate Loop
-//    optO3->add(CreatePyAliasAnalysis(*this));
-//    optO3->add(createLICMPass());                  // Hoist loop invariants
-//    optO3->add(createLoopUnswitchPass());
-//    optO3->add(createLoopIndexSplitPass());        // Split loop index
-//    optO3->add(createInstructionCombiningPass());
-//    optO3->add(createIndVarSimplifyPass());        // Canonicalize indvars
-//    optO3->add(createLoopDeletionPass());          // Delete dead loops
-//    optO3->add(createLoopUnrollPass());          // Unroll small loops
-//    optO3->add(createInstructionCombiningPass()); // Clean up after the unroller
-//    optO3->add(CreatePyAliasAnalysis(*this));
-//    optO3->add(createGVNPass());                   // Remove redundancies
-//    optO3->add(CreatePyAliasAnalysis(*this));
-//    optO3->add(createMemCpyOptPass());            // Remove memcpy / form memset
-//    optO3->add(createSCCPPass());                  // Constant prop with SCCP
-//
-//    // Run instcombine after redundancy elimination to exploit opportunities
-//    // opened up by them.
-//    optO3->add(createInstructionCombiningPass());
-//    optO3->add(createCondPropagationPass());       // Propagate conditionals
-//    optO3->add(CreatePyAliasAnalysis(*this));
-//    optO3->add(createDeadStoreEliminationPass());  // Delete dead stores
-//    optO3->add(createAggressiveDCEPass());   // Delete dead instructions
-//    optO3->add(createCFGSimplificationPass());     // Merge & remove BBs
-//
-//    //optO3->add(createStripDeadPrototypesPass()); // Get rid of dead prototypes
-//    //optO3->add(createDeadTypeEliminationPass());   // Eliminate dead types
-//
-//    //optO3->add(createConstantMergePass());       // Merge dup global constants
-//    optO3->add(llvm::createVerifierPass());
-//}
+struct ForceJITLinking forcejitlinking;
+static ExecutionEngine * EE = 0;
+static std::list<std::string> global_includes;
 
-static void optimize_module(Module * M, bool DisableOptimizations, bool DisableInline) {
-	PassManager Passes;
-	addPass(Passes, new TargetData(M));
+/* 
+	LLVM bindings
+*/
+#pragma mark LLVM bindings
 
-	// @see https://llvm.org/svn/llvm-project/llvm/branches/non-call-eh/tools/llvm-ld/Optimize.cpp
-	if (!DisableOptimizations) {
-//		// Now that composite has been compiled, scan through the module, looking
-//		// for a main function.  If main is defined, mark all other functions
-//		// internal.
-//		if (!DisableInternalize)
-//			addPass(Passes, createInternalizePass(true));
-
-		// Propagate constants at call sites into the functions they call.  This
-		// opens opportunities for globalopt (and inlining) by substituting function
-		// pointers passed as arguments to direct uses of functions.  
-		addPass(Passes, createIPSCCPPass());
-
-		// Now that we internalized some globals, see if we can hack on them!
-		addPass(Passes, createGlobalOptimizerPass());
-
-		// Linking modules together can lead to duplicated global constants, only
-		// keep one copy of each constant...
-		addPass(Passes, createConstantMergePass());
-
-		// Remove unused arguments from functions...
-		addPass(Passes, createDeadArgEliminationPass());
-
-		// Reduce the code after globalopt and ipsccp.  Both can open up significant
-		// simplification opportunities, and both can propagate functions through
-		// function pointers.  When this happens, we often have to resolve varargs
-		// calls, etc, so let instcombine do this.
-		addPass(Passes, createInstructionCombiningPass());
-
-		if (!DisableInline)
-			addPass(Passes, createFunctionInliningPass()); // Inline small functions
-
-		addPass(Passes, createPruneEHPass());            // Remove dead EH info
-		addPass(Passes, createGlobalOptimizerPass());    // Optimize globals again.
-		addPass(Passes, createGlobalDCEPass());          // Remove dead functions
-
-		// If we didn't decide to inline a function, check to see if we can
-		// transform it to pass arguments by value instead of by reference.
-		addPass(Passes, createArgumentPromotionPass());
-
-		// The IPO passes may leave cruft around.  Clean up after them.
-		addPass(Passes, createInstructionCombiningPass());
-		addPass(Passes, createJumpThreadingPass());        // Thread jumps.
-		addPass(Passes, createScalarReplAggregatesPass()); // Break up allocas
-
-		// Run a few AA driven optimizations here and now, to cleanup the code.
-		//addPass(Passes, createGlobalsModRefPass());      // IP alias analysis
-
-		addPass(Passes, createLICMPass());               // Hoist loop invariants
-		addPass(Passes, createGVNPass());                  // Remove redundancies
-		addPass(Passes, createMemCpyOptPass());          // Remove dead memcpy's
-		addPass(Passes, createDeadStoreEliminationPass()); // Nuke dead stores
-
-		// Cleanup and simplify the code after the scalar optimizations.
-		addPass(Passes, createInstructionCombiningPass());
-
-		addPass(Passes, createJumpThreadingPass());        // Thread jumps.
-		addPass(Passes, createPromoteMemoryToRegisterPass()); // Cleanup jumpthread.
-
-		// Delete basic blocks, which optimization passes may have killed...
-		addPass(Passes, createCFGSimplificationPass());
-
-		// Now that we have optimized the program, discard unreachable functions...
-		addPass(Passes, createGlobalDCEPass());
-	}
-
-//	// If the -s or -S command line options were specified, strip the symbols out
-//	// of the resulting program to make it smaller.  -s and -S are GNU ld options
-//	// that we are supporting; they alias -strip-all and -strip-debug.
-//	if (Strip || StripDebug)
-//		addPass(Passes, createStripSymbolsPass(StripDebug && !Strip));
-//
-//	// Create a new optimization pass for each one specified on the command line
-//	std::auto_ptr<TargetMachine> target;
-//	for (unsigned i = 0; i < OptimizationList.size(); ++i) {
-//		const PassInfo *Opt = OptimizationList[i];
-//		if (Opt->getNormalCtor())
-//			addPass(Passes, Opt->getNormalCtor()());
-//		else
-//			luaL_error(L, "llvm-ld: cannot create pass: %s", Opt->getPassName());
-//	}
-
-	// The user's passes may leave cruft around. Clean up after them them but
-	// only if we haven't got DisableOptimizations set
-	if (!DisableOptimizations) {
-		addPass(Passes, createInstructionCombiningPass());
-		addPass(Passes, createCFGSimplificationPass());
-		addPass(Passes, createAggressiveDCEPass());
-		addPass(Passes, createGlobalDCEPass());
-	}
-
-	// Make sure everything is still good.
-	Passes.add(createVerifierPass());
-	
-	Passes.run(*M);
-}
+#include "luaopen_clang_llvm.cpp"
 
 /*
 	Execution Engine
 */
-#pragma mark EE
-static ExecutionEngine * EE = 0;
+#pragma mark Execution Engine
+void eeRegisterModule(lua_State * L, Compiler * c, Module * module);
 
-ExecutionEngine * getEE() {
-	return EE;
-}
-
-void * lazyfunctioncreator(const std::string & str) {
-	printf("can't find function to jit %s\n", str.data()); 
-	return NULL;
-}
-
+/*
+	Class to snoop on what the JIT is doing:
+*/
 class LuaclangJITEventListener : public JITEventListener {
-	lua_State * mL;
 public:
 	LuaclangJITEventListener() : JITEventListener() {}
 	virtual ~LuaclangJITEventListener() {}
@@ -330,1996 +183,226 @@ public:
 };
 static LuaclangJITEventListener gLuaclangJITEventListener;
 
-ModuleProvider * createModuleProviderFromJIT(lua_State * L, Module * module) {
-	ExistingModuleProvider * emp = new ExistingModuleProvider(module);
-//	printf("module %p\n", emp);
-
-	// register with JIT (create if necessary)
-	if (EE == 0) {
-		std::string err;
-		EE = ExecutionEngine::createJIT(
-			emp,	// module provider
-			&err,	// error string
-			0,		// JITMemoryManager
-			CodeGenOpt::Default,	// JIT slowly (None, Default, Aggressive)
-			false	// allocate GlobalVariables separately from code
-		);
-		
-		printf("new ExecutionEngine %p\n", EE);
-		
-//		// this is how unladen swallow does it:
-//		engine_ = llvm::ExecutionEngine::create(
-//			module_provider_,
-//			// Don't force the interpreter (use JIT if possible).
-//			false,
-//			&error,
-//			// JIT slowly, to produce better machine code.  TODO: We'll
-//			// almost certainly want to make this configurable per
-//			// function.
-//			llvm::CodeGenOpt::Default,
-//			// Allocate GlobalVariables separately from code.
-//			false);
-		
-		if (EE == 0) {
-			luaL_error(L, "Failed to create Execution Engine %p: %s\n", EE, err.c_str());
-		}
-		
-		// turn this off when not debugging:
-		EE->RegisterJITEventListener(&gLuaclangJITEventListener);
-		//EE->InstallLazyFunctionCreator(lazyfunctioncreator);
-		EE->DisableLazyCompilation(true);
-		//EE->DisableGVCompilation();
-		
-		// When we ask to JIT a function, we should also JIT other
-		// functions that function depends on.  This would let us JIT in a
-		// background thread to avoid blocking the main thread during
-		// codegen.
-		//EE->DisableLazyCompilation();
-		
-
-	} else {
-		EE->addModuleProvider(emp);
-	}
-	
-//	// Fill the ExecutionEngine with the addresses of known global variables.
-//	for (Module::global_iterator it = module->global_begin();
-//		it != module->global_end(); ++it) {
-//		EE->getOrEmitGlobalVariable(it);
-//	}
-	
-	// run all static constructors:
-	EE->runStaticConstructorsDestructors(emp->getModule(), false);
-	
-	// I guess we should do this:
-	module->setTargetTriple(llvm::sys::getHostTriple());
-	
-	// unladen swallow also does this:
-	module->setDataLayout(EE->getTargetData()->getStringRepresentation());
-	
-	return emp;
-}
-
-
-
-
-static void Lua2GV(lua_State * L, int idx, GenericValue & v, const Type * t) {
-	switch(t->getTypeID()) {
-		case Type::VoidTyID:
-			break;
-		case Type::FloatTyID:
-			v.FloatVal = luaL_optnumber(L, idx, 0);
-			break;
-		case Type::DoubleTyID:
-			v.DoubleVal = luaL_optnumber(L, idx, 0);
-			break;
-		case Type::IntegerTyID: {
-			int i = luaL_optinteger(L, idx, 0);
-			v.IntVal = APInt(((IntegerType *)t)->getBitWidth(), i);
-			break;
-		}
-		case Type::PointerTyID:
-			v = PTOGV(lua_touserdata(L, idx));
-			break;
-		case Type::OpaqueTyID:
-		case Type::FunctionTyID:
-		case Type::StructTyID:
-		case Type::ArrayTyID:
-		case Type::VectorTyID:
-			v.PointerVal = lua_touserdata(L, idx);
-			break;
-	}
-}
-static int GV2Lua(lua_State * L, GenericValue & v, const Type * t) {
-	switch(t->getTypeID()) {
-		case Type::VoidTyID:
-			lua_pushnil(L);
-			return 1;
-		case Type::FloatTyID:
-			lua_pushnumber(L, v.FloatVal);
-			return 1;
-		case Type::DoubleTyID:
-			lua_pushnumber(L, v.DoubleVal);
-			return 1;
-		case Type::IntegerTyID:
-			if (v.IntVal.getBitWidth() == 1) {
-				lua_pushnumber(L, v.IntVal.getBoolValue());
-				return 1;
-			}
-			lua_pushinteger(L, v.IntVal.getSExtValue());
-			return 1;
-		case Type::PointerTyID:
-		case Type::OpaqueTyID:
-		case Type::FunctionTyID:
-		case Type::StructTyID:
-		case Type::ArrayTyID:
-		case Type::VectorTyID:
-			lua_pushlightuserdata(L, v.PointerVal);
-			return 1;
-	}
-	return 0;
-}
-
-static int ee_addGlobalMapping(lua_State * L) {
-	ExecutionEngine * ee = getEE();
-	GlobalValue * gv = Glue<GlobalValue>::checkto(L, 1);
-	void * addr = lua_touserdata(L, 2);
-	ee->addGlobalMapping(gv, addr);
-	return 0;
-}
-
-static int ee_getTargetData(lua_State * L) {
-	ExecutionEngine * ee = getEE();
-	const TargetData * td = ee->getTargetData();
-
-	lua_newtable(L);
-	// LLVM string representation of TargetData
-	lua_pushstring(L, td->getStringRepresentation().c_str());
-	lua_setfield(L, -2, "representation");
-	// endianness:
-	lua_pushboolean(L, td->isLittleEndian());
-	lua_setfield(L, -2, "litteEndian");
-	// pointer alignment
-	lua_pushinteger(L, td->getPointerABIAlignment());
-	lua_setfield(L, -2, "pointerABIAlignment");
-	lua_pushinteger(L, td->getPointerPrefAlignment());
-	lua_setfield(L, -2, "pointerPrefAlignment");
-	lua_pushinteger(L, td->getPointerSize());
-	lua_setfield(L, -2, "pointerSize");
-	lua_pushinteger(L, td->getPointerSizeInBits());
-	lua_setfield(L, -2, "pointerSizeInBits");
-	// int type of pointer
-	Glue<Type>::push(L, (Type *)td->getIntPtrType(getGlobalContext()));
-	lua_setfield(L, -2, "intPtrType");
-
-	return 1;
-}
-
-static int ee_offsetOf(lua_State * L) {
-	ExecutionEngine * ee = getEE();
-	const TargetData * td = ee->getTargetData();
-	const Type * t = Glue<Type>::checkto(L, 1);
-	unsigned nindices = lua_gettop(L) - 1;
-	Value * indices[nindices];
-	for (unsigned int i=0; i<nindices; i++) {
-		indices[i] = Glue<Value>::checkto(L, i+2);
-	}
-	lua_pushinteger(L, td->getIndexedOffset(t, indices, nindices));
-	return 1;
-}
-
-static int ee_call(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	if (getEE() == 0)
-		return luaL_error(L, "no execution engine");
-	Function * f;
-	const char * name;
-	if (lua_isstring(L, 2)) {
-		name = lua_tostring(L, 2);
-		f = m->getFunction(name);
-	} else {
-		f = Glue<Function>::checkto(L, 2);
-		name = f->getNameStr().c_str();
-	}
-	if (f == 0)
-		return luaL_error(L, "function %s not found", name);
-
-	const FunctionType * ft = f->getFunctionType();
-
-	// get args:
-	std::vector<GenericValue> gvs(ft->getNumParams());
-	for (unsigned int i=0; i<ft->getNumParams(); i++) {
-		Lua2GV(L, i+3, gvs[i], ft->getParamType(i));
-	}
-	GenericValue res = EE->runFunction(f, gvs);
-	return GV2Lua(L, res, ft->getReturnType());
-}
-
-
-//template <typename A1, void (*F)(A1)>
-//void call1(A1 a1) {
-//	F(a1);
-//}
-//
-//int callLua(lua_State * L) {
-//	ExecutionEngine * ee = getEE();
-//	Module * m = getLModule(L)->getModule();
-//
-//	Function * F;
-//	const char * name;
-//	if (lua_isstring(L, 1)) {
-//		name = lua_tostring(L, 1);
-//		F = m->getFunction(name);
-//		if (F == 0)
-//			return luaL_error(L, "Function %s not found\n", name);
-//	} else {
-//		F = Glue<Function>::checkto(L, 1);
-//		if (F == 0)
-//			return luaL_error(L, "Not a function name or Function\n");
-//		name = F->getNameStr().c_str();
-//	}
-////	if (F->getFunctionType() != luaFunctionTy) {
-////		llvm_print(L, F->getFunctionType());
-////		return luaL_error(L, "Function is not a lua_CFunction");
-////	}
-//	// get rid of the function to align the stack:
-//	lua_remove(L, 1);
-//	// here we can test to ensure that it has the right function type:
-//	lua_CFunction lf = (lua_CFunction)ee->getPointerToFunction(F);
-//	return lf(L);
-//}
-//
-//int call(lua_State * L) {
-//	Function * f = Glue<Function>::checkto(L, 1);
-//	ExecutionEngine * ee = getEE();
-//	if (ee == 0)
-//		return luaL_error(L, "Execution Engine not found");
-//	void * fptr = LModule::getEE()->getPointerToFunction(f);
-//	if (fptr == 0)
-//		return luaL_error(L, "Function pointer not found");
-//	// now need to get types & check/cast args accordingly:
-//	const FunctionType * ft = f->getFunctionType();
-//	int nparams = ft->getNumParams();
-//	if (lua_gettop(L)-1 != nparams)
-//		return luaL_error(L, "Expected %d params, received %d", nparams, lua_gettop(L)-1);
-//	return 0;
-//}
-
-static int ee_pushluafunction(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	Function * F;
-	const char * name;
-	if (lua_isstring(L, 2)) {
-		name = lua_tostring(L, 2);
-		F = m->getFunction(name);
-		if (F == 0)
-			return luaL_error(L, "Function %s not found\n", name);
-	} else {
-		F = Glue<Function>::checkto(L, 2);
-		if (F == 0)
-			return luaL_error(L, "Not a function name or Function\n");
-		name = F->getNameStr().c_str();
-	}
-	// TODO verify functiontype
-	lua_pushcfunction(L, (lua_CFunction)(getEE()->getPointerToFunction(F)));
-	return 1;
-}
-
-template<> const char * Glue<ExecutionEngine>::usr_name() { return "ExecutionEngine"; }
-template<> void Glue<ExecutionEngine>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, ee_call);	lua_setfield(L, -2, "call");
-	lua_pushcfunction(L, ee_getTargetData);	lua_setfield(L, -2, "getTargetData");
-	lua_pushcfunction(L, ee_offsetOf);	lua_setfield(L, -2, "offsetOf");
-	lua_pushcfunction(L, ee_pushluafunction); lua_setfield(L, -2, "pushluafunction");
-	lua_pushcfunction(L, ee_addGlobalMapping); lua_setfield(L, -2, "addGlobalMapping");
-}
-
-
-/* 
-	Module
-		(removed, since everything happens through ModuleProvider anyway)
-*/
-#pragma mark Module
-//template<> int llvm_print<llvm::Module>(lua_State * L, Module * u) {
-//	std::stringstream s;
-//	u->print(s, 0);
-//	lua_pushfstring(L, "%s", s.str().c_str());
-//	return 1;
-//}
-//
-//template<> const char * Glue<Module>::usr_name() { return "Module"; }
-//template<> int Glue<Module>::usr_tostring(lua_State * L, Module * u) {
-//	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModuleIdentifier().c_str(), u);
-//	return 1;
-//}
-//template<> Module * Glue<Module>::usr_new(lua_State * L) {
-//	const char * modulename = luaL_checkstring(L, 1);
-//	Module * M = new Module(modulename, getGlobalContext()); 
-//	createModuleProviderFromJIT(L, M);
-//	return M;
-//}
-//template<> void Glue<Module>::usr_gc(lua_State * L, Module * u) {
-//	printf("gc module %s\n", u->getModuleIdentifier().data());
-//	getEE()->clearGlobalMappingsFromModule(u);
-//	
-//	// run all static destructors:
-//	EE->runStaticConstructorsDestructors(u, true);
-//	
-//	//getEE()->deleteModuleProvider(...);
-//}
-//template<> void Glue<Module>::usr_push(lua_State * L, Module * u) {}
-//static int module_linkto(lua_State * L) {
-//	std::string err;
-//	Module * self = Glue<Module>::checkto(L, 1);
-//	Module * mod = Glue<Module>::checkto(L, 2);
-//	llvm::Linker::LinkModules(self, mod, &err);
-//	if (err.length())
-//		luaL_error(L, err.c_str());
-//	// mod can't be used anymore, as it has been subsumed into self:
-//	lua_pushnil(L);
-//	lua_setmetatable(L, 2);
-//	return 0;
-//}
-//
-//int module_writeBitcodeFile(lua_State * L) {
-//	Module * m = Glue<Module>::checkto(L, 1);
-//	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-//	WriteBitcodeToFile(m, ofile);
-//	ofile.close();
-//	return 0;
-//}
-//
-//static int module_dump(lua_State * L) {
-//	Module * m = Glue<Module>::checkto(L, 1);
-//	m->dump();
-//	return 0;
-//}
-//
-//int module_addTypeName(lua_State * L) {
-//	Module * m = Glue<Module>::checkto(L, 1);
-//	const Type * ty = Glue<Type>::checkto(L, 2);
-//	const char * name = luaL_checkstring(L, 3);
-//	lua_pushboolean(L, m->addTypeName(name, ty));
-//	return 1;
-//}
-//int module_getTypeName(lua_State * L) {
-//	Module * m = Glue<Module>::checkto(L, 1);
-//	const Type * ty = Glue<Type>::checkto(L, 2);
-//	lua_pushstring(L, m->getTypeName(ty).c_str());
-//	return 1;
-//}
-//int module_getTypeByName(lua_State * L) {
-//	Module * m = Glue<Module>::checkto(L, 1);
-//	const char * name = luaL_checkstring(L, 2);
-//	const Type * t = m->getTypeByName(name);
-//	if (t == 0)
-//		return luaL_error(L, "Type %s not found", name);
-//	return Glue<Type>::push(L, (Type *)t);
-//}
-//int module_optimize(lua_State * L) {
-//	Module * M = Glue<Module>::checkto(L, 1);
-//	bool DisableOptimizations = lua_toboolean(L, 2);
-//	bool DisableInline = lua_toboolean(L, 3);
-//	optimize_module(M, DisableOptimizations, DisableInline);
-//	return 0;
-//}
-//template<> void Glue<Module> :: usr_mt(lua_State * L) {
-//	lua_pushcfunction(L, module_linkto); lua_setfield(L, -2, "linkto");
-//	lua_pushcfunction(L, module_optimize); lua_setfield(L, -2, "optimize");
-//	lua_pushcfunction(L, module_dump); lua_setfield(L, -2, "dump");
-//	lua_pushcfunction(L, module_addTypeName); lua_setfield(L, -2, "addTypeName");
-//	lua_pushcfunction(L, module_getTypeName); lua_setfield(L, -2, "getTypeName");
-//	lua_pushcfunction(L, module_getTypeByName); lua_setfield(L, -2, "getTypeByName");
-//	lua_pushcfunction(L, module_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
-//}
-
-/* 
-	ModuleProvider
-*/
-#pragma mark ModuleProvider
-template<> const char * Glue<ModuleProvider>::usr_name() { return "ModuleProvider"; }
-template<> int Glue<ModuleProvider>::usr_tostring(lua_State * L, ModuleProvider * u) {
-	lua_pushfstring(L, "%s: %s(%p)", usr_name(), u->getModule()->getModuleIdentifier().c_str(), u);
-	return 1;
-}
-template<> ModuleProvider * Glue<ModuleProvider>::usr_new(lua_State * L) {
-	//Module * m = Glue<Module>::checkto(L, 1);
-	//return new ExistingModuleProvider(m);
-	const char * modulename = luaL_checkstring(L, 1);
-	Module * M = new Module(modulename, getGlobalContext()); 
-	return createModuleProviderFromJIT(L, M);
-}
-template<> void Glue<ModuleProvider>::usr_gc(lua_State * L, ModuleProvider * mp) {
-//	printf("~module %p\n", mp);
-	std::string err;
-	ExecutionEngine * ee = getEE();
-	Module * m = mp->getModule();
-	if (m) {
-		ee->runStaticConstructorsDestructors(m, true);
-		ee->clearGlobalMappingsFromModule(m);
-		
-		// iterate functions and remove from EE:
-		for (Module::iterator i = m->begin(), e = m->end(); i != e; ++i) {
-			ee->freeMachineCodeForFunction(i);
-		}
-		
-		m->dropAllReferences();
-	}
-	ee->removeModuleProvider(mp, &err);
-	// this isn't safe, since we may be using things created in m:
-	//ee->deleteModuleProvider(mp);
-	
-	printf("removed %s %s\n", m->getModuleIdentifier().data(), err.data());
-//	delete m;
-}
-//static int moduleprovider_module(lua_State * L) {
-//	ModuleProvider * mp = Glue<ModuleProvider>::checkto(L, 1);
-//	Glue<Module>::push(L, mp->getModule());
-//	return 1;
-//}
-static int moduleprovider_dump(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	m->dump();
-	return 0;
-}
-int moduleprovider_addTypeName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_checkstring(L, 3);
-	lua_pushboolean(L, m->addTypeName(name, ty));
-	return 1;
-}
-int moduleprovider_getTypeName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * ty = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, m->getTypeName(ty).c_str());
-	return 1;
-}
-int moduleprovider_getTypeByName(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const char * name = luaL_checkstring(L, 2);
-	const Type * t = m->getTypeByName(name);
-	if (t == 0)
-		return luaL_error(L, "Type %s not found", name);
-	return Glue<Type>::push(L, (Type *)t);
-}
-int moduleprovider_writeBitcodeFile(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	std::ofstream ofile(luaL_checkstring(L, 2), std::ios_base::out | std::ios_base::trunc);
-	WriteBitcodeToFile(m, ofile);
-	ofile.close();
-	return 0;
-}
-static int moduleprovider_link(lua_State * L) {
-	std::string err;
-	Module * self = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	Module * mod = Glue<ModuleProvider>::checkto(L, 2)->getModule();
-	llvm::Linker::LinkModules(self, mod, &err);
-	if (err.length())
-		luaL_error(L, err.c_str());
-	// mod can't be used anymore, as it has been subsumed into self:
-	lua_pushnil(L);
-	lua_setmetatable(L, 2);
-	return 0;
-}
-int moduleprovider_optimize(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	bool DisableOptimizations = lua_toboolean(L, 2);
-	bool DisableInline = lua_toboolean(L, 3);
-	optimize_module(M, DisableOptimizations, DisableInline);
-	return 0;
-}
-
-int moduleprovider_functions(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	lua_newtable(L);
-	for (Module::iterator i = M->begin(), e = M->end(); i != e; ++i) {
-		lua_pushstring(L, i->getName().data());
-		Glue<Function>::push(L, i);
-		lua_rawset(L, -3);
-	}
-	return 1;
-}
-
-template<> void Glue<ModuleProvider> :: usr_mt(lua_State * L) {
-	//lua_pushcfunction(L, moduleprovider_module); lua_setfield(L, -2, "getModule");
-	lua_pushcfunction(L, moduleprovider_dump); lua_setfield(L, -2, "dump");
-	lua_pushcfunction(L, moduleprovider_addTypeName); lua_setfield(L, -2, "addTypeName");
-	lua_pushcfunction(L, moduleprovider_getTypeName); lua_setfield(L, -2, "getTypeName");
-	lua_pushcfunction(L, moduleprovider_getTypeByName); lua_setfield(L, -2, "getTypeByName");
-	lua_pushcfunction(L, moduleprovider_writeBitcodeFile); lua_setfield(L, -2, "writeBitcodeFile");
-	lua_pushcfunction(L, moduleprovider_link); lua_setfield(L, -2, "link");
-	lua_pushcfunction(L, moduleprovider_optimize); lua_setfield(L, -2, "optimize");
-	lua_pushcfunction(L, moduleprovider_functions); lua_setfield(L, -2, "functions");
-	lua_pushcfunction(L, ee_call); lua_setfield(L, -2, "call");
-	lua_pushcfunction(L, ee_pushluafunction); lua_setfield(L, -2, "pushluafunction");
-}
-
-
 /*
-	Type
+	Clang compilation wrapper
 */
-#pragma mark Type
-template<> const char * Glue<Type>::usr_name() { return "Type"; }
-template<> int Glue<Type>::usr_tostring(lua_State * L, Type * t) { return llvm_print(L, t); }
-
-// type call with no argument is a constant constructor
-// type call with an argument is a cast operator
-//static int type_call(lua_State * L) {
-//	const Type * t = Glue<Type>::checkto(L, 1);
-//	if (!lua_isuserdata(L, 2)) {
-//		// constant initializer:
-//		switch (t->getTypeID()) {
-//			case Type::VoidTyID:
-//				return Glue<Constant>::push(L, ConstantPointerNull::get((const PointerType *)Type::getVoidTy(getGlobalContext())));
-//			case Type::FloatTyID:
-//			case Type::DoubleTyID:
-//				return Glue<Constant>::push(L, ConstantFP::get(t, luaL_optnumber(L, 2, 0.)));
-//			case Type::IntegerTyID:
-//				return Glue<Constant>::push(L, ConstantInt::get(t, luaL_optinteger(L, 2, 0)));
-//		}
-//		return luaL_error(L, "Type cannot be constructed as a constant");
-//	} else {
-//		// cast:
-//		Value * v = Glue<Value>::checkto(L, 2);
-//		const Type * t2 = v->getType();
-//		IRBuilder<> * b = getLModule(L)->getBuilder();
-//
-//		// can't cast void:
-//		if (t->getTypeID() == Type::VoidTyID || t2->getTypeID() == Type::VoidTyID)
-//			return luaL_error(L, "Cannot cast to/from Void");
-//
-//		// ptr to ptr
-//		if (t->getTypeID() == Type::PointerTyID && t2->getTypeID() == Type::PointerTyID) {
-//			return Glue<Value>::push(L, b->CreateBitCast(v, t, "cast"));
-//		}
-//
-//		// int to float:
-//		if (t->isInteger() && t2->isFloatingPoint())
-//			return Glue<Value>::push(L, b->CreateFPToSI(v, t, "intcast"));
-//		// float to int
-//		if (t->isFloatingPoint() && t2->isInteger())
-//			return Glue<Value>::push(L, b->CreateSIToFP(v, t, "floatcast"));
-//
-//		// int to int
-//		if (t->isInteger() == t2->isInteger()) {
-//			const IntegerType * it = (IntegerType *)t;
-//			const IntegerType * it2 = (IntegerType *)t2;
-//			if (it->getBitWidth() > it2->getBitWidth()) {
-//				return Glue<Value>::push(L, b->CreateZExt(v, it, "trunc"));
-//			} else if (it->getBitWidth() < it2->getBitWidth()) {
-//				return Glue<Value>::push(L, b->CreateTrunc(v, it, "trunc"));
-//			} else {
-//				return 1; // no cast required
-//			}
-//		}
-//
-//		return luaL_error(L, "unrecognized cast");
-//	}
-//}
-
-int type_id(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	lua_pushinteger(L, t->getTypeID());
-	return 1;
-}
-int type_isinteger(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	lua_pushboolean(L, t->isInteger());
-	return 1;
-}
-int type_isfloatingpoint(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	lua_pushboolean(L, t->isFloatingPoint());
-	return 1;
-}
-int type_isabstract(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	lua_pushboolean(L, t->isAbstract());
-	return 1;
-}
-int type_issized(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	lua_pushboolean(L, t->isSized());
-	return 1;
-}
-int type_isValidReturnType(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L);
-	lua_pushboolean(L, FunctionType::isValidReturnType(t));
-	return 1;
-}
-//int type_sizeABI(lua_State * L) {
-//	const Type * t = Glue<Type>::checkto(L, 1);
-//	ExecutionEngine * ee = LModule::getEE();
-//	const TargetData * td = ee->getTargetData();
-//	/// getTypeSizeInBits - Return the number of bits necessary to hold the
-//	/// specified type.  For example, returns 36 for i36 and 80 for x86_fp80.
-//	lua_pushinteger(L, td->getABITypeSize(t));
-//	return 1;
-//}
-int type_sizeinbits(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	const TargetData * td = getEE()->getTargetData();
-	/// getTypeSizeInBits - Return the number of bits necessary to hold the
-	/// specified type.  For example, returns 36 for i36 and 80 for x86_fp80.
-	lua_pushinteger(L, td->getTypeSizeInBits(t));
-	return 1;
-}
-static int type_pointer(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	int addressSpace = luaL_optinteger(L, 2, 0);
-	if (t->getTypeID() == Type::VoidTyID) {
-		// special case for void *:
-		return Glue<PointerType>::push(L, PointerType::get(Type::getInt8Ty(getGlobalContext()), addressSpace));
-	}
-	return Glue<PointerType>::push(L, PointerType::get(t, addressSpace));
-}
-static int type_eq(lua_State * L) {
-	//lua::dump(L, "eq");
-	const Type * a = Glue<Type>::checkto(L, 1);
-	const Type * b = Glue<Type>::checkto(L, 2);
-	//ddebug("%p %p\n", a, b);
-	lua_pushboolean(L, a == b);
-	return 1;
-}
-int type_modname(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * t = Glue<Type>::checkto(L, 2);
-	lua_pushstring(L, M->getTypeName(t).c_str());
-	return 1;
-}
-template<> void Glue<Type>::usr_mt(lua_State * L) {
-	//lua_pushcfunction(L, type_call); lua_setfield(L, -2, "__call");
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-	lua_pushcfunction(L, type_pointer); lua_setfield(L, -2, "pointer");
-	lua_pushcfunction(L, type_pointer); lua_setfield(L, -2, "ptr");
-	lua_pushcfunction(L, type_modname); lua_setfield(L, -2, "name");
-	lua_pushcfunction(L, type_isinteger); lua_setfield(L, -2, "isinteger");
-	lua_pushcfunction(L, type_isfloatingpoint); lua_setfield(L, -2, "isfloatingpoint");
-	lua_pushcfunction(L, type_isabstract); lua_setfield(L, -2, "isabstract");
-	lua_pushcfunction(L, type_issized); lua_setfield(L, -2, "issized");
-	lua_pushcfunction(L, type_sizeinbits); lua_setfield(L, -2, "sizeinbits");
-	lua_pushcfunction(L, type_isValidReturnType); lua_setfield(L, -2, "isValidReturnType");
-	//lua_pushcfunction(L, type_sizeABI); lua_setfield(L, -2, "size");
-	lua_pushcfunction(L, type_id); lua_setfield(L, -2, "id");
-	lua_pushcfunction(L, ee_offsetOf); lua_setfield(L, -2, "offsetOf");
-	
-	Glue<Type>::push(L, (Type *)Type::getVoidTy(getGlobalContext())); lua_setfield(L, -2, "Void");
-	Glue<Type>::push(L, (Type *)Type::getLabelTy(getGlobalContext())); lua_setfield(L, -2, "Label");
-	Glue<Type>::push(L, (Type *)Type::getFloatTy(getGlobalContext())); lua_setfield(L, -2, "Float");
-	Glue<Type>::push(L, (Type *)Type::getDoubleTy(getGlobalContext())); lua_setfield(L, -2, "Double");
-	Glue<Type>::push(L, (Type *)Type::getInt1Ty(getGlobalContext())); lua_setfield(L, -2, "Int1");
-	Glue<Type>::push(L, (Type *)Type::getInt8Ty(getGlobalContext())); lua_setfield(L, -2, "Int8");
-	Glue<Type>::push(L, (Type *)Type::getInt16Ty(getGlobalContext())); lua_setfield(L, -2, "Int16");
-	Glue<Type>::push(L, (Type *)Type::getInt32Ty(getGlobalContext())); lua_setfield(L, -2, "Int32");
-	Glue<Type>::push(L, (Type *)Type::getInt64Ty(getGlobalContext())); lua_setfield(L, -2, "Int64");
-}
-
-/*
-	StructType : CompositeType : DerivedType : Type
-*/
-#pragma mark StructType
-template<> const char * Glue<StructType>::usr_name() { return "StructType"; }
-template<> const char * Glue<StructType>::usr_supername() { return "Type"; }
-template<> int Glue<StructType>::usr_tostring(lua_State * L, StructType * t) { return llvm_print<StructType>(L, t); }
-template<> StructType * Glue<StructType>::usr_new(lua_State * L) {
-	std::vector<const Type *> types;
-	if (lua_type(L, 1) == LUA_TTABLE) {
-		int ntypes = lua_objlen(L, 1);
-		for (int i=1; i<= ntypes; i++) {
-			lua_rawgeti(L, 1, i);
-			types.push_back(Glue<Type>::checkto(L, -1));
-			lua_pop(L, 1);
-		}
-	}
-	bool isPacked = false; // this is true for unions, I think??
-	return StructType::get((getGlobalContext()), types, isPacked);
-}
-static int structtype_len(lua_State * L) {
-	StructType * u = Glue<StructType>::checkto(L, 1);
-	lua_pushinteger(L, u->getNumElements());
-	return 1;
-}
-static int structtype_getelementtype(lua_State * L) {
-	StructType * u = Glue<StructType>::checkto(L, 1);
-	unsigned int i = luaL_checkinteger(L, 2);
-	if (i >= u->getNumElements())
-		return luaL_error(L, "StructType has only %d elements (requested %d)", u->getNumElements(), i);
-	return Glue<Type>::push(L, (Type *)u->getElementType(i));
-}
-static int structtype_gettypes(lua_State * L) {
-	StructType * u = Glue<StructType>::checkto(L, 1);
-	for (unsigned int i=0; i< u->getNumElements(); i++) {
-		Glue<Type>::push(L, (Type *)u->getElementType(i));
-	}
-	return u->getNumElements();
-}
-template<> void Glue<StructType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, structtype_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-	lua_pushcfunction(L, structtype_getelementtype); lua_setfield(L, -2, "type");
-	lua_pushcfunction(L, structtype_gettypes); lua_setfield(L, -2, "types");
-}
-
-/*
-	SequentialType : CompositeType : DerivedType : Type
-*/
-#pragma mark SequentialType
-template<> const char * Glue<SequentialType>::usr_name() { return "SequentialType"; }
-template<> const char * Glue<SequentialType>::usr_supername() { return "Type"; }
-template<> int Glue<SequentialType>::usr_tostring(lua_State * L, SequentialType * t) { return llvm_print<SequentialType>(L, t); }
-static int sequentialtype_getelementtype(lua_State * L) {
-	SequentialType * u = Glue<SequentialType>::checkto(L, 1);
-	return Glue<Type>::push(L, (Type *)u->getElementType());
-}
-template<> void Glue<SequentialType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-	lua_pushcfunction(L, sequentialtype_getelementtype); lua_setfield(L, -2, "type");
-}
-
-/*
-	PointerType : SequentialType
-*/
-#pragma mark PointerType
-template<> const char * Glue<PointerType>::usr_name() { return "PointerType"; }
-template<> const char * Glue<PointerType>::usr_supername() { return "SequentialType"; }
-template<> int Glue<PointerType>::usr_tostring(lua_State * L, PointerType * t) { return llvm_print<PointerType>(L, t); }
-template<> PointerType * Glue<PointerType>::usr_new(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	int addressSpace = luaL_optinteger(L, 2, 0);
-	return PointerType::get(t, addressSpace);
-}
-template<> void Glue<PointerType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-}
-
-/*
-	ArrayType : SequentialType
-*/
-#pragma mark ArrayType
-template<> const char * Glue<ArrayType>::usr_name() { return "ArrayType"; }
-template<> const char * Glue<ArrayType>::usr_supername() { return "SequentialType"; }
-template<> int Glue<ArrayType>::usr_tostring(lua_State * L, ArrayType * t) { return llvm_print<ArrayType>(L, t); }
-template<> ArrayType * Glue<ArrayType>::usr_new(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	int len = luaL_optinteger(L, 2, 1);
-	return ArrayType::get(t, len);
-}
-static int arraytype_len(lua_State * L) {
-	ArrayType * u = Glue<ArrayType>::checkto(L, 1);
-	lua_pushinteger(L, u->getNumElements());
-	return 1;
-}
-template<> void Glue<ArrayType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, arraytype_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-}
-
-/*
-	VectorType : SequentialType
-*/
-#pragma mark VectorType
-template<> const char * Glue<VectorType>::usr_name() { return "VectorType"; }
-template<> const char * Glue<VectorType>::usr_supername() { return "SequentialType"; }
-template<> int Glue<VectorType>::usr_tostring(lua_State * L, VectorType * t) { return llvm_print<VectorType>(L, t); }
-template<> VectorType * Glue<VectorType>::usr_new(lua_State * L) {
-	const Type * t = Glue<Type>::checkto(L, 1);
-	int len = luaL_optinteger(L, 2, 1);
-	return VectorType::get(t, len);
-}
-static int vectortype_len(lua_State * L) {
-	VectorType * u = Glue<VectorType>::checkto(L, 1);
-	lua_pushinteger(L, u->getNumElements());
-	return 1;
-}
-template<> void Glue<VectorType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, vectortype_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-}
-
-/*
-	OpaqueType : DerivedType : Type
-*/
-#pragma mark OpaqueType
-template<> const char * Glue<OpaqueType>::usr_name() { return "OpaqueType"; }
-template<> const char * Glue<OpaqueType>::usr_supername() { return "Type"; }
-template<> int Glue<OpaqueType>::usr_tostring(lua_State * L, OpaqueType * t) { return llvm_print<OpaqueType>(L, t); }
-template<> OpaqueType * Glue<OpaqueType>::usr_new(lua_State * L) {
-	return OpaqueType::get(getGlobalContext());
-}
-template<> void Glue<OpaqueType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-}
-
-/*
-	FunctionType : DerivedType : Type
-*/
-#pragma mark FunctionType
-template<> const char * Glue<FunctionType>::usr_name() { return "FunctionType"; }
-template<> const char * Glue<FunctionType>::usr_supername() { return "Type"; }
-template<> int Glue<FunctionType>::usr_tostring(lua_State * L, FunctionType * t) { return llvm_print<FunctionType>(L, t); }
-template<> FunctionType * Glue<FunctionType>::usr_new(lua_State * L) {
-	const Type * ret = Glue<Type>::checkto(L, 1);
-	std::vector<const Type *> types;
-	int ntypes = lua_gettop(L) - 1;
-	for (int i=0; i<ntypes; i++)
-		types.push_back(Glue<Type>::checkto(L, i+2));
-	bool isVarArg = false; // this is true for unions, I think??
-	return FunctionType::get(ret, types, isVarArg);
-}
-static int functiontype_isvararg(lua_State * L) {
-	FunctionType * f = Glue<FunctionType>::checkto(L, 1);
-	lua_pushinteger(L, f->isVarArg());
-	return 1;
-}
-static int functiontype_getparamtype(lua_State * L) {
-	FunctionType * u = Glue<FunctionType>::checkto(L, 1);
-	unsigned int i = luaL_checkinteger(L, 2);
-	if (i >= u->getNumParams())
-		return luaL_error(L, "FunctionType has only %d params (requested %d)", u->getNumParams(), i);
-	return Glue<Type>::push(L, (Type *)u->getParamType(i));
-}
-static int functiontype_getreturntype(lua_State * L) {
-	FunctionType * u = Glue<FunctionType>::checkto(L, 1);
-	return Glue<Type>::push(L, (Type *)u->getReturnType());
-}
-static int functiontype_len(lua_State * L) {
-	FunctionType * u = Glue<FunctionType>::checkto(L, 1);
-	lua_pushinteger(L, u->getNumParams());
-	return 1;
-}
-template<> void Glue<FunctionType>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, type_eq); lua_setfield(L, -2, "__eq");
-	lua_pushcfunction(L, functiontype_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, functiontype_isvararg); lua_setfield(L, -2, "isvararg");
-	lua_pushcfunction(L, functiontype_getparamtype); lua_setfield(L, -2, "param");
-	lua_pushcfunction(L, functiontype_getreturntype); lua_setfield(L, -2, "ret");
-	lua_pushcfunction(L, Glue<Function>::create); lua_setfield(L, -2, "__call");
-}
-
-/*
-	Value
-*/
-#pragma mark Value
-template<> const char * Glue<Value>::usr_name() { return "Value"; }
-template<> int Glue<Value>::usr_tostring(lua_State * L, Value * u) { return llvm_print<Value>(L, u); }
-template<> Value * Glue<Value>::usr_reinterpret(lua_State * L, int idx) {
-	if (lua_isnoneornil(L, idx))
-		return 0;
-	double n;
-	switch (lua_type(L, idx)) {
-		case LUA_TBOOLEAN:
-			// equiv: const bool;
-			return ConstantInt::get((getGlobalContext()), APInt(1, lua_toboolean(L, idx)));
-		case LUA_TNUMBER:
-			n = lua_tonumber(L, idx);
-			if (fmod(n, 1.0) == 0.)
-				// equiv: const sint32_t;
-				return ConstantInt::get((getGlobalContext()), APInt(32, lua_tonumber(L, idx)));
-			else	
-				// equiv: const double;
-				return ConstantFP::get(Type::getDoubleTy(getGlobalContext()), lua_tonumber(L, idx));
-		case LUA_TSTRING:
-			// equiv: const char * (null terminated)
-			return ConstantArray::get((getGlobalContext()), std::string(lua_tostring(L, idx)), true); // true == null terminate
-		case LUA_TUSERDATA:	{	 
-			// makes sense only if it is a Value:
-			Value * u = Glue<Value>::checkto(L, idx);
-			return u;
-		}
-		case LUA_TLIGHTUSERDATA: // pointers can't be typeless constants, so exchange for null
-		case LUA_TNIL:
-		default:				// thread, function & table make no sense for an LLVM Value *
-			luaL_error(L, "cannot interpret value of type %s\n", lua_typename(L, lua_type(L, idx)));
-			break;
-	}
-	return 0;
-}
-static int value_type(lua_State * L) {
-	Value * u = Glue<Value>::checkto(L);
-	return Glue<Type>::push(L, (Type *)u->getType());
-}
-static int value_name(lua_State * L) {
-	Value * u = Glue<Value>::checkto(L);
-	if (lua_isstring(L, 2)) {
-		const char * name = lua_tostring(L, 2);
-		u->setName(name);
-		lua_pushvalue(L, 1);
-		return 1;
-	}
-	lua_pushstring(L, u->getNameStr().c_str());
-	return 1;
-}
-static int value_replace(lua_State * L) {
-	Value * u = Glue<Value>::checkto(L, 1);
-	Value * v = Glue<Value>::checkto(L, 2);
-	u->replaceAllUsesWith(v);
-	return 0;
-}
-static int value_uses(lua_State * L) {
-	Value * u = Glue<Value>::checkto(L, 1);
-	lua_pushinteger(L, u->getNumUses());
-	return 1;
-}
-template<> void Glue<Value>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, value_type); lua_setfield(L, -2, "type");
-	lua_pushcfunction(L, value_name); lua_setfield(L, -2, "name");
-	lua_pushcfunction(L, value_replace); lua_setfield(L, -2, "replace");
-	lua_pushcfunction(L, value_uses); lua_setfield(L, -2, "uses");
-}
-
-/*
-	Argument : Value
-*/
-#pragma mark Argument
-template<> const char * Glue<Argument>::usr_name() { return "Argument"; }
-template<> const char * Glue<Argument>::usr_supername() { return "Value"; }
-template<> int Glue<Argument>::usr_tostring(lua_State * L, Argument * u) { return llvm_print<Argument>(L, u); }
-static int argument_parent(lua_State * L) {
-	Argument * u = Glue<Argument>::checkto(L, 1);
-	return Glue<Function>::push(L, u->getParent());
-}
-static int argument_argno(lua_State * L) {
-	Argument * u = Glue<Argument>::checkto(L, 1);
-	lua_pushinteger(L, u->getArgNo());
-	return 1;
-}
-static int argument_byval(lua_State * L) {
-	Argument * u = Glue<Argument>::checkto(L, 1);
-	lua_pushboolean(L, u->hasByValAttr());
-	return 1;
-}
-template<> void Glue<Argument>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, argument_parent); lua_setfield(L, -2, "parent");
-	lua_pushcfunction(L, argument_argno); lua_setfield(L, -2, "argno");
-	lua_pushcfunction(L, argument_byval); lua_setfield(L, -2, "byval");
-}
-
-/*
-	Instruction : User : Value
-*/
-#pragma mark Instruction
-template<> const char * Glue<Instruction>::usr_name() { return "Instruction"; }
-template<> const char * Glue<Instruction>::usr_supername() { return "Value"; }
-template<> int Glue<Instruction>::usr_tostring(lua_State * L, Instruction * u) { return llvm_print<Instruction>(L, u); }
-static int inst_parent(lua_State * L) {
-	Instruction * u = Glue<Instruction>::checkto(L, 1);
-	return Glue<BasicBlock>::push(L, u->getParent());
-}
-static int inst_erase(lua_State * L) {
-	Instruction * f = Glue<Instruction>::checkto(L, 1);
-	f->eraseFromParent();
-	Glue<Instruction>::erase(L, 1);
-	return 0;
-}
-static int inst_opcode(lua_State * L) {
-	Instruction * u = Glue<Instruction>::checkto(L, 1);
-	lua_pushstring(L, u->getOpcodeName());
-	return 1;
-}
-template<> void Glue<Instruction>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, inst_parent); lua_setfield(L, -2, "parent");
-	lua_pushcfunction(L, inst_erase); lua_setfield(L, -2, "erase");
-	lua_pushcfunction(L, inst_opcode); lua_setfield(L, -2, "opcode");
-}
-
-/*
-	PHINode : Instruction
-*/
-#pragma mark PHINode
-template<> const char * Glue<PHINode>::usr_name() { return "PHINode"; }
-template<> const char * Glue<PHINode>::usr_supername() { return "Instruction"; }
-template<> int Glue<PHINode>::usr_tostring(lua_State * L, PHINode * u) { return llvm_print<PHINode>(L, u); }
-static int phi_addincoming(lua_State * L) {
-	PHINode * u = Glue<PHINode>::checkto(L, 1);
-	Value * v = Glue<Value>::checkto(L, 2);
-	BasicBlock * block = Glue<BasicBlock>::checkto(L, 3);
-	u->addIncoming(v, block);
-	return 0;
-}
-template<> void Glue<PHINode>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, phi_addincoming); lua_setfield(L, -2, "addincoming");
-}
-
-
-/*
-	BasicBlock : Value
-*/
-#pragma mark BasicBlock
-template<> const char * Glue<BasicBlock>::usr_name() { return "BasicBlock"; }
-template<> const char * Glue<BasicBlock>::usr_supername() { return "Value"; }
-template<> int Glue<BasicBlock>::usr_tostring(lua_State * L, BasicBlock * u) { return llvm_print<BasicBlock>(L, u); }
-template<> BasicBlock * Glue<BasicBlock>::usr_new(lua_State * L) {
-	const char * name = luaL_optstring(L, 1, "noname");
-	Function * parent = Glue<Function>::to(L, 2);
-	BasicBlock * insertbefore = Glue<BasicBlock>::to(L, 3);
-	return BasicBlock::Create((getGlobalContext()), name, parent, insertbefore);
-}
-static int block_parent(lua_State * L) {
-	BasicBlock * u = Glue<BasicBlock>::checkto(L, 1);
-	return Glue<Function>::push(L, u->getParent());
-}
-static int block_erase(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	f->eraseFromParent();
-	Glue<BasicBlock>::erase(L, 1);
-	return 0;
-}
-static int block_terminator(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	return Glue<Instruction>::push(L, f->getTerminator());
-}
-static int block_instruction(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	unsigned int i = luaL_checkinteger(L, 2);
-	if (i >= f->size())
-		return luaL_error(L, "Function has only %d arguments (requested %d)", f->size(), i);
-	BasicBlock::iterator it = f->begin();
-	while (i--) it++;
-	return Glue<Instruction>::push(L, it);
-}
-static int block_front(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	return Glue<Instruction>::push(L, &f->front());
-}
-static int block_back(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	return Glue<Instruction>::push(L, &f->back());
-}
-static int block_len(lua_State * L) {
-	BasicBlock * f = Glue<BasicBlock>::checkto(L, 1);
-	lua_pushinteger(L, f->size());
-	return 1;
-}
-//static int block_setinsertpoint(lua_State * L) {
-//	BasicBlock * block = Glue<BasicBlock>::checkto(L, 1);
-//	getLModule(L)->getBuilder()->SetInsertPoint(block);
-//	return 0;
-//}
-//static int block_ret(lua_State * L) {
-//	IRBuilder<> * b = getLModule(L)->getBuilder();
-//	BasicBlock * block = Glue<BasicBlock>::checkto(L, 1);
-//	Value * v = Glue<Value>::to(L, 2);
-//	Function * f = block->getParent();
-//	if (f) {
-//		// check types:
-//		const Type * retType = f->getFunctionType()->getReturnType();
-//		if (retType->getTypeID() == Type::VoidTyID) {
-//			if (v)
-//				return luaL_error(L, "current function returns void");
-//			return Glue<Instruction>::push(L, b->CreateRetVoid());
-//		}
-//		if (retType != v->getType())
-//			luaL_error(L, "return type mismatch");
-//		return Glue<Instruction>::push(L, b->CreateRet(v));
-//	}
-//	if (v)
-//		return Glue<Instruction>::push(L, b->CreateRet(v));
-//	return Glue<Instruction>::push(L, b->CreateRetVoid());
-//}
-template<> void Glue<BasicBlock>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, block_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, block_instruction); lua_setfield(L, -2, "instruction");
-	lua_pushcfunction(L, block_parent); lua_setfield(L, -2, "parent");
-	lua_pushcfunction(L, block_front); lua_setfield(L, -2, "front");
-	lua_pushcfunction(L, block_back); lua_setfield(L, -2, "back");
-	lua_pushcfunction(L, block_erase); lua_setfield(L, -2, "erase");
-	lua_pushcfunction(L, block_terminator); lua_setfield(L, -2, "terminator");
-//	lua_pushcfunction(L, block_setinsertpoint); lua_setfield(L, -2, "setinsertpoint");
-//	lua_pushcfunction(L, block_ret); lua_setfield(L, -2, "ret");
-}
-
-/*
-	Constant : User : Value
-*/
-#pragma mark Constant
-template<> const char * Glue<Constant>::usr_name() { return "Constant"; }
-template<> const char * Glue<Constant>::usr_supername() { return "Value"; }
-template<> int Glue<Constant>::usr_tostring(lua_State * L, Constant * u) { return llvm_print<Constant>(L, u); }
-template<> Constant * Glue<Constant>::usr_reinterpret(lua_State * L, int idx) {
-	return (Constant *)Glue<Value>::usr_reinterpret(L, idx);
-}
-// destroyConstant... todo: call this on all constants registered so far, when the module closes
-
-/*
-	GlobalValue : Constant
-*/
-#pragma mark GlobalValue
-template<> const char * Glue<GlobalValue>::usr_name() { return "GlobalValue"; }
-template<> const char * Glue<GlobalValue>::usr_supername() { return "Constant"; }
-template<> int Glue<GlobalValue>::usr_tostring(lua_State * L, GlobalValue * u) { return llvm_print<GlobalValue>(L, u); }
-static int global_linkage(lua_State * L) {
-	GlobalValue * u = Glue<GlobalValue>::checkto(L, 1);
-	if (lua_isnumber(L, 2)) {
-		u->setLinkage((GlobalValue::LinkageTypes)lua_tointeger(L, 2));
-	}
-	lua_pushinteger(L, u->getLinkage());
-	return 1;
-}
-static int global_isdeclaration(lua_State * L) {
-	GlobalValue * f = Glue<GlobalValue>::checkto(L, 1);
-	lua_pushboolean(L, f->isDeclaration());
-	return 1;
-}
-
-
-static int global_getptr(lua_State * L) {
-	GlobalValue * u = Glue<GlobalValue>::checkto(L, 1);
-	void * ptr = getEE()->getPointerToGlobalIfAvailable(u);
-	if (ptr) {
-		lua_pushlightuserdata(L, ptr);
-		return 1;
-	}
-	return 0;
-}
-
-template<> void Glue<GlobalValue>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, global_linkage); lua_setfield(L, -2, "linkage");
-	lua_pushcfunction(L, global_isdeclaration); lua_setfield(L, -2, "isdeclaration");
-	lua_pushcfunction(L, global_getptr); lua_setfield(L, -2, "getptr");
-	lua_pushcfunction(L, ee_addGlobalMapping); lua_setfield(L, -2, "addGlobalMapping");
-}
-// likely methods:	getParent() (returns a Module *)
-
-
-/*
-	GlobalVariable : GlobalValue
-*/
-#pragma mark GlobalVariable
-template<> const char * Glue<GlobalVariable>::usr_name() { return "GlobalVariable"; }
-template<> const char * Glue<GlobalVariable>::usr_supername() { return "GlobalValue"; }
-template<> int Glue<GlobalVariable>::usr_tostring(lua_State * L, GlobalVariable * u) { return llvm_print<GlobalVariable>(L, u); }
-template<> GlobalVariable * Glue<GlobalVariable>::usr_new(lua_State * L) {
-	Module * m = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	const Type * t = Glue<Type>::checkto(L, 2);
-	const char * name  = luaL_checkstring(L, 3);
-	bool isConstant = lua_toboolean(L, 4);
-	Constant * initializer = 0;
-	if (lua_isuserdata(L, 5)) {
-		initializer = Glue<Constant>::to(L, 5);
-		if (initializer->getType() != t) {
-			luaL_error(L, "initializer must match type");
-			return 0;
-		}
-	}
-	GlobalValue::LinkageTypes lt = (GlobalValue::LinkageTypes)luaL_optinteger(L, 5, GlobalValue::ExternalLinkage);
-	return new GlobalVariable((getGlobalContext()), t, isConstant, lt, initializer, name, m);
-}
-static int globalvar_erase(lua_State * L) {
-	GlobalVariable * u = Glue<GlobalVariable>::checkto(L, 1);
-	u->eraseFromParent();
-	Glue<GlobalVariable>::erase(L, 1);
-	return 0;
-}
-static int globalvar_isconstant(lua_State * L) {
-	GlobalVariable * u = Glue<GlobalVariable>::checkto(L, 1);
-	lua_pushboolean(L, u->isConstant());
-	return 1;
-}
-static int globalvar_initializer(lua_State * L) {
-	GlobalVariable * u = Glue<GlobalVariable>::checkto(L, 1);
-	if (u->hasInitializer())
-		return Glue<Constant>::push(L, u->getInitializer());
-	return 0;
-}
-template<> void Glue<GlobalVariable>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, globalvar_erase); lua_setfield(L, -2, "erase");
-	lua_pushcfunction(L, globalvar_initializer); lua_setfield(L, -2, "initializer");
-	lua_pushcfunction(L, globalvar_isconstant); lua_setfield(L, -2, "isconstant");
-}
-
-/*
-	Function : GlobalValue
-	
-	TODO: 
-	When a function is destroyed, we should call
-		engine->freeMachineCodeForFunction(function);
-        function->eraseFromParent();
-	But this isn't safe if another function is using it... so perhaps let the module destructor do it?
-*/
-#pragma mark Function
-template<> const char * Glue<Function>::usr_name() { return "Function"; }
-template<> const char * Glue<Function>::usr_supername() { return "GlobalValue"; }
-template<> int Glue<Function>::usr_tostring(lua_State * L, Function * u) { return llvm_print<Function>(L, u); }
-template<> Function * Glue<Function>::usr_new(lua_State * L) {
-	Module * M = Glue<ModuleProvider>::checkto(L, 1)->getModule();
-	// if argument is a string, then search for a pre-existing function of that name
-	if (lua_isstring(L, 2))
-		return M->getFunction(lua_tostring(L, 2));
-	// else generate a new function:
-	const FunctionType * ft = Glue<FunctionType>::checkto(L, 2);
-	std::string name  = luaL_checkstring(L, 3);
-	GlobalValue::LinkageTypes lt = (GlobalValue::LinkageTypes)luaL_optinteger(L, 4, GlobalValue::ExternalLinkage);
-	bool noAutoName = (bool)lua_isboolean(L, 4) && (bool)lua_toboolean(L, 5); // default false
-	Function * F = Function::Create(ft, lt, name, M);
-	if (noAutoName && F->getName() != name) {
-		F->eraseFromParent();
-		luaL_error(L, "Function %s already exists", name.c_str());
-		return 0;
-	}
-	unsigned int i=0;
-	Function::arg_iterator AI = F->arg_begin();
-	for (; i < F->getFunctionType()->getNumParams(); ++AI, ++i) {
-		char argname[16];
-		sprintf(argname, "arg%i", i);
-		AI->setName(argname);
-	}
-	return F;
-}
-static int function_intrinsic(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	lua_pushinteger(L, f->getIntrinsicID());
-	return 1;
-}
-static int function_deletebody(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	f->deleteBody();
-	return 0;
-}
-static int function_erase(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	f->eraseFromParent();
-	Glue<Function>::erase(L, 1);
-	return 0;
-}
-static int function_callingconv(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	if (lua_isnumber(L, 2)) {
-		unsigned cc = lua_tonumber(L, 2);
-		f->setCallingConv(cc);
-	}
-	lua_pushinteger(L, f->getCallingConv());
-	return 1;
-}
-static int function_argument(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	unsigned int i = luaL_checkinteger(L, 2);
-	if (i >= f->getFunctionType()->getNumParams())
-		return luaL_error(L, "Function has only %d arguments (requested %d)", f->getFunctionType()->getNumParams(), i);
-	Function::arg_iterator it = f->arg_begin();
-	while (i--) it++;
-	return Glue<Argument>::push(L, it);
-}
-static int function_len(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	lua_pushinteger(L, f->size());
-	return 1;
-}
-static int function_block(lua_State * L) {
-	Function * f = Glue<Function>::checkto(L, 1);
-	unsigned int i = luaL_checkinteger(L, 2);
-	if (i >= f->size())
-		return luaL_error(L, "Function has only %d blocks (requested %d)", f->size(), i);
-	Function::iterator it = f->begin();
-	while (i--) it++;
-	return Glue<BasicBlock>::push(L, it);
-}
-static int function_verify(lua_State * L) {
-	Function * u = Glue<Function>::to(L, 1);
-	lua_pushboolean(L, u && (verifyFunction(*u, ReturnStatusAction) == false));
-	return 1;
-}
-// trick here is knowing what the right
-static int function_getptr(lua_State * L) {
-	Function * u = Glue<Function>::to(L, 1);
-	// NOTE: this causes codegeneration of F and any dependents:
-	void * f = getEE()->getPointerToFunction(u);
-	lua_pushlightuserdata(L, f);
-	return 1;
-}
-//static int function_optimize(lua_State * L) {
-//	Function * f = Glue<Function>::checkto(L, 1);
-//	lua_pushboolean(L, getLModule(L)->optimize(f));
-//	return 1;
-//}
-static int function_pushcfunction(lua_State * L) {
-	Function * u = Glue<Function>::checkto(L, 1);
-	void * f = getEE()->getPointerToFunction(u);
-	if(f) { // && u->getFunctionType() != luaFunctionTy) {
-		lua_pushcfunction(L, (lua_CFunction)f);
-		return 1;
-	}
-	else {
-		return 0;
-	}
-}
-template<> void Glue<Function>::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, function_len); lua_setfield(L, -2, "__len");
-	lua_pushcfunction(L, function_intrinsic); lua_setfield(L, -2, "intrinsic");
-	lua_pushcfunction(L, function_deletebody); lua_setfield(L, -2, "deletebody");
-	lua_pushcfunction(L, function_erase); lua_setfield(L, -2, "erase");
-	lua_pushcfunction(L, function_callingconv); lua_setfield(L, -2, "callingconv");
-	lua_pushcfunction(L, function_argument); lua_setfield(L, -2, "argument");
-	lua_pushcfunction(L, function_block); lua_setfield(L, -2, "block");
-	lua_pushcfunction(L, function_verify); lua_setfield(L, -2, "verify");
-	lua_pushcfunction(L, function_getptr); lua_setfield(L, -2, "getptr");
-	//lua_pushcfunction(L, function_optimize); lua_setfield(L, -2, "optimize");
-	lua_pushcfunction(L, function_pushcfunction); lua_setfield(L, -2, "pushcfunction");
-}
-
-/*
-	IRBuilder
-*/
-#pragma mark IRBuilder
-template<> const char * Glue<IRBuilder<> >::usr_name() { return "IRBuilder"; }
-template<> IRBuilder<> * Glue<IRBuilder<> >::usr_new(lua_State * L) {
-	return new IRBuilder<>(getGlobalContext());
-}
-
-static int createPHI(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Type * ty = Glue<Type>::checkto(L, 2);
-	const char * name = luaL_optstring(L, 3, "phi");
-	return Glue<PHINode>::push(L, b->CreatePHI(ty, name));
-}
-static int createBr(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	BasicBlock * branch = Glue<BasicBlock>::checkto(L, 2);
-	return Glue<Instruction>::push(L, b->CreateBr(branch));
-}
-static int createCondBr(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * condition = Glue<Value>::checkto(L, 2);
-	if (condition->getType() != Type::getInt1Ty(getGlobalContext()))
-		return luaL_error(L, "condition must be of Int1 type");
-	BasicBlock * iftrue = Glue<BasicBlock>::checkto(L, 3);
-	BasicBlock * iffalse = Glue<BasicBlock>::checkto(L, 4);
-	return Glue<Instruction>::push(L, b->CreateCondBr(condition, iftrue, iffalse));
-}
-static int createRet(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	BasicBlock * block = b->GetInsertBlock();
-	if (block == 0)
-		return luaL_error(L, "not currently building a block");
-	Value * v = Glue<Value>::to(L, 2);
-	Function * f = block->getParent();
-	if (f) {
-		// check types:
-		const Type * retType = f->getFunctionType()->getReturnType();
-		if (retType->getTypeID() == Type::VoidTyID) {
-			return Glue<Instruction>::push(L, b->CreateRetVoid());
-		}
-		if (v == NULL)
-			return luaL_error(L, "function requires a return value");
-		if (retType->getTypeID() != v->getType()->getTypeID()) {
-			//ddebug("%i %i\n", retType->getTypeID(), v->getType()->getTypeID());
-			luaL_error(L, "return type mismatch");
-		}
-		return Glue<Instruction>::push(L, b->CreateRet(v));
-	}
-	if (v)
-		return Glue<Instruction>::push(L, b->CreateRet(v));
-	return Glue<Instruction>::push(L, b->CreateRetVoid());
-}
-static int createAdd(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	return Glue<Value>::push(L, b->CreateAdd(x, y, "add"));
-}
-static int createSub(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	return Glue<Value>::push(L, b->CreateSub(x, y, "sub"));
-}
-static int createMul(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	return Glue<Value>::push(L, b->CreateMul(x, y, "mul"));
-}
-static int createDiv(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		// todo check for unsignedness
-		return Glue<Value>::push(L, b->CreateSDiv(x, y, "sdiv"));
-	}
-	return Glue<Value>::push(L, b->CreateFDiv(x, y, "fdiv"));
-}
-static int createRem(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		// todo check for unsignedness
-		return Glue<Value>::push(L, b->CreateSRem(x, y, "srem"));
-	}
-	return Glue<Value>::push(L, b->CreateFRem(x, y, "frem"));
-}
-static int createNeg(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	return Glue<Value>::push(L, b->CreateNeg(Glue<Value>::checkto(L, 2), "neg"));
-}
-static int createNot(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	return Glue<Value>::push(L, b->CreateNot(Glue<Value>::checkto(L, 2), "not"));
-}
-static int createCmpEQ(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		return Glue<Value>::push(L, b->CreateICmpEQ(x, y, "icmp_eq"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpOEQ(x, y, "fcmp_oeq"));
-	return Glue<Value>::push(L, b->CreateFCmpUEQ(x, y, "fcmp_ueq"));
-}
-static int createCmpNE(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		return Glue<Value>::push(L, b->CreateICmpNE(x, y, "icmp_ne"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpONE(x, y, "fcmp_one"));
-	return Glue<Value>::push(L, b->CreateFCmpUNE(x, y, "fcmp_une"));
-}
-static int createCmpGT(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		if (option)
-			return Glue<Value>::push(L, b->CreateICmpUGT(x, y, "icmp_ugt"));
-		return Glue<Value>::push(L, b->CreateICmpSGT(x, y, "icmp_sgt"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpOGT(x, y, "fcmp_ogt"));
-	return Glue<Value>::push(L, b->CreateFCmpUGT(x, y, "fcmp_ugt"));
-}
-static int createCmpLT(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		if (option)
-			return Glue<Value>::push(L, b->CreateICmpULT(x, y, "icmp_ult"));
-		return Glue<Value>::push(L, b->CreateICmpSLT(x, y, "icmp_slt"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpOLT(x, y, "fcmp_olt"));
-	return Glue<Value>::push(L, b->CreateFCmpULT(x, y, "fcmp_ult"));
-}
-static int createCmpGE(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		if (option)
-			return Glue<Value>::push(L, b->CreateICmpUGE(x, y, "icmp_uge"));
-		return Glue<Value>::push(L, b->CreateICmpSGE(x, y, "icmp_sge"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpOGE(x, y, "fcmp_oge"));
-	return Glue<Value>::push(L, b->CreateFCmpUGE(x, y, "fcmp_uge"));
-}
-static int createCmpLE(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	Value * y = Glue<Value>::checkto(L, 3);
-	// for int: option indicates unsigned; for float: fail if either is nan;
-	bool option = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	bool ix = x->getType()->isInteger();
-	bool iy = y->getType()->isInteger();
-	if (ix && iy) {
-		if (option)
-			return Glue<Value>::push(L, b->CreateICmpULE(x, y, "icmp_ule"));
-		return Glue<Value>::push(L, b->CreateICmpSLE(x, y, "icmp_sle"));
-	}
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFCmpOLE(x, y, "fcmp_ole"));
-	return Glue<Value>::push(L, b->CreateFCmpULE(x, y, "fcmp_ule"));
-}
-
-static int createFToI(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	// option indicates unsigned
-	bool option = lua_isboolean(L, 3) && lua_toboolean(L, 3);
-	if (!x->getType()->isFloatingPoint())
-		luaL_error(L, "attempt to cast from non-floating point type");
-	if (!option)
-		return Glue<Value>::push(L, b->CreateFPToSI(x, Type::getInt32Ty(getGlobalContext()), "fptosi"));
-	return Glue<Value>::push(L, b->CreateFPToUI(x, Type::getInt32Ty(getGlobalContext()), "fptoui"));
-}
-static int createIToF(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * x = Glue<Value>::checkto(L, 2);
-	// option indicates unsigned
-	bool option = lua_isboolean(L, 3) && lua_toboolean(L, 3);
-	if (!x->getType()->isInteger())
-		luaL_error(L, "attempt to cast from non-integer type");
-	if (!option)
-		return Glue<Value>::push(L, b->CreateSIToFP(x, Type::getDoubleTy(getGlobalContext()), "sitofp"));
-	return Glue<Value>::push(L, b->CreateUIToFP(x, Type::getDoubleTy(getGlobalContext()), "uitofp"));
-}
-
-static int createCall(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Module * m = Glue<ModuleProvider>::checkto(L, 2)->getModule();	
-	// get args:
-	std::vector<Value *> args;
-	for (int i=4; i<=lua_gettop(L); i++) {
-		args.push_back(Glue<Value>::checkto(L, i));
-	}
-	// function may be by Function or by name:
-	if (lua_isstring(L, 3)) {
-		const char * fname = lua_tostring(L, 3);
-		Function * f = m->getFunction(fname);
-		if (f == 0)
-			return luaL_error(L, "function %s not found", lua_tostring(L, 3));
-		if (args.size() < f->getFunctionType()->getNumParams())
-			return luaL_error(L, "insufficient arguments");
-
-		// ok it's a function. what return type?
-		if (f->getReturnType() == Type::getVoidTy(getGlobalContext())) {
-			// functions returning void shouldn't be named:
-			b->CreateCall(f, args.begin(), args.end());
-			return 0;
-		}
-		return Glue<Value>::push(L, b->CreateCall(f, args.begin(), args.end(), f->getNameStr().c_str()));
-	}
-	Function * f = Glue<Function>::checkto(L, 3);
-	FunctionType * ft = (FunctionType *)f->getFunctionType();
-	if (args.size() < ft->getNumParams())
-		return luaL_error(L, "insufficient arguments");
-	if (f->getReturnType() == Type::getVoidTy(getGlobalContext())) {
-		// functions returning void shouldn't be named:
-		b->CreateCall(f, args.begin(), args.end());
-		return 0;
-	}
-	return Glue<Value>::push(L, b->CreateCall(f, args.begin(), args.end(), "call"));
-}
-static int createExtractValue(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * agg = Glue<Value>::checkto(L, 2);
-	if (!agg->getType()->isAggregateType())
-		return luaL_error(L, "not an aggregate type");
-	unsigned idx = luaL_optinteger(L, 3, 0);
-	// todo: verify that agg.indices > idx
-	return Glue<Value>::push(L, b->CreateExtractValue(agg, idx, "extract"));
-}
-static int createInsertValue(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * agg = Glue<Value>::checkto(L, 2);
-	if (!agg->getType()->isAggregateType())
-		return luaL_error(L, "not an aggregate type");
-	unsigned idx = luaL_optinteger(L, 3, 0);
-	// todo: verify that agg.indices > idx
-	Value * val = Glue<Value>::checkto(L, 4);
-	// verify that types match
-	return Glue<Value>::push(L, b->CreateInsertValue(agg, val, idx, "insert"));
-}
-
-Value * toInteger(lua_State * L, int idx = 1, int def = 0) {
-	if (lua_isnumber(L, idx))
-		return ConstantInt::get((getGlobalContext()), APInt(32, lua_tointeger(L, idx)));
-	Value * res = Glue<Value>::to(L, idx);
-	if (res == 0)
-		return ConstantInt::get((getGlobalContext()), APInt(32, def));
-	return res;
-}
-
-static int createMalloc(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	const Type * t = Glue<Type>::checkto(L, 2);
-	if (!t->isSized())
-		return luaL_error(L, "type is not sized");
-	Value * sz = toInteger(L, 3, 1);
-	if (!sz->getType()->isInteger())
-		return luaL_error(L, "size is not integer");
-	return Glue<Instruction>::push(L, b->CreateMalloc(t, sz, "mem"));
-}
-static int createAlloca(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	// todo: get the current function, and insert this instruction in its entry block
-	// (necessary for mem2reg optimizations to work)
-	/*
-	IRBuilder TmpB(&TheFunction->getEntryBlock(),
-                 TheFunction->getEntryBlock().begin());
-  return TmpB.CreateAlloca(Type::DoubleTy, 0, VarName.c_str());
-	*/
-	const Type * t = Glue<Type>::checkto(L, 2);
-	if (!t->isSized())
-		return luaL_error(L, "type is not sized");
-	Value * sz = toInteger(L, 3, 1);
-	if (!sz->getType()->isInteger())
-		return luaL_error(L, "size is not integer");
-	return Glue<Instruction>::push(L, b->CreateAlloca(t, sz, "mem"));
-}
-static int createFree(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * p = Glue<Value>::checkto(L, 2);
-	if (p->getType()->getTypeID() != Type::PointerTyID)
-		return luaL_error(L, "not a pointer type");
-	return Glue<Instruction>::push(L, b->CreateFree(p));
-}
-static int createLoad(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * p = Glue<Value>::checkto(L, 2);
-	if (p->getType()->getTypeID() != Type::PointerTyID)
-		return luaL_error(L, "not a pointer type");
-	bool isVolatile = lua_isboolean(L, 3) && lua_toboolean(L, 3);
-	return Glue<Instruction>::push(L, b->CreateLoad(p, isVolatile, "load"));
-}
-static int createStore(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * p = Glue<Value>::checkto(L, 2);
-	Value * v = Glue<Value>::checkto(L, 3);
-	if (p->getType()->getTypeID() != Type::PointerTyID)
-		return luaL_error(L, "not a pointer type");
-	if (p->getType()->getTypeID() != PointerType::get(v->getType(), 0)->getTypeID())
-		return luaL_error(L, "mismatch type");
-	bool isVolatile = lua_isboolean(L, 4) && lua_toboolean(L, 4);
-	return Glue<Instruction>::push(L, b->CreateStore(v, p, isVolatile));
-}
-static int createGEP(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * p = Glue<Value>::checkto(L, 2);
-	if (p->getType()->getTypeID() != Type::PointerTyID)
-		return luaL_error(L, "not a pointer type");
-	std::vector<Value *> indices;
-	for (int i=3; i<=lua_gettop(L); i++) {
-		// todo: it's easy to index out of range here, and this causes a crash
-		// but how to avoid this is hard...
-		// if value is a constant, then we can try to calculate, but too much is runtime dependent
-		Value * idx = toInteger(L, i, 0);
-		if (!idx->getType()->isInteger())
-			return luaL_error(L, "indices must be integers");
-		indices.push_back(idx);
-	}
-	return Glue<Value>::push(L, b->CreateGEP(p, indices.begin(), indices.end(), "ptr"));
-}
-static int createBitCast(lua_State * L) {
-	IRBuilder<> * b = Glue<IRBuilder<> >::checkto(L, 1);
-	Value * v = Glue<Value>::checkto(L, 2);
-	const Type * vty = v->getType();
-	if (vty->isAggregateType())
-		return luaL_error(L, "cannot cast aggregate type");
-	const Type * ty = Glue<Type>::checkto(L, 3);
-	if (ty->isAggregateType())
-		return luaL_error(L, "cannot cast to aggregate type");
-	if (vty->getTypeID() == Type::PointerTyID && ty->getTypeID() != Type::PointerTyID)
-		return luaL_error(L, "pointers can only be cast to pointer types");
-	return Glue<Value>::push(L, b->CreateBitCast(v, ty, "cast"));
-}
-template<> void Glue<IRBuilder<> >::usr_mt(lua_State * L) {
-	lua_pushcfunction(L, createPHI); lua_setfield(L, -2, "PHI");
-	lua_pushcfunction(L, createBr); lua_setfield(L, -2, "Br");
-	lua_pushcfunction(L, createCondBr); lua_setfield(L, -2, "CondBr");
-	lua_pushcfunction(L, createRet); lua_setfield(L, -2, "Ret");
-	lua_pushcfunction(L, createAdd); lua_setfield(L, -2, "Add");
-	lua_pushcfunction(L, createSub); lua_setfield(L, -2, "Sub");
-	lua_pushcfunction(L, createDiv); lua_setfield(L, -2, "Div");
-	lua_pushcfunction(L, createMul); lua_setfield(L, -2, "Mul");
-	lua_pushcfunction(L, createRem); lua_setfield(L, -2, "Rem");
-	lua_pushcfunction(L, createNeg); lua_setfield(L, -2, "Neg");
-	lua_pushcfunction(L, createNot); lua_setfield(L, -2, "Not");
-	lua_pushcfunction(L, createCmpEQ); lua_setfield(L, -2, "CmpEQ");
-	lua_pushcfunction(L, createCmpNE); lua_setfield(L, -2, "CmpNE");
-	lua_pushcfunction(L, createCmpLE); lua_setfield(L, -2, "CmpLE");
-	lua_pushcfunction(L, createCmpLT); lua_setfield(L, -2, "CmpLT");
-	lua_pushcfunction(L, createCmpGE); lua_setfield(L, -2, "CmpGE");
-	lua_pushcfunction(L, createCmpGT); lua_setfield(L, -2, "CmpGT");
-	lua_pushcfunction(L, createFToI); lua_setfield(L, -2, "FToI");
-	lua_pushcfunction(L, createIToF); lua_setfield(L, -2, "IToF");
-	lua_pushcfunction(L, createBitCast); lua_setfield(L, -2, "BitCast");
-	lua_pushcfunction(L, createCall); lua_setfield(L, -2, "Call");
-	lua_pushcfunction(L, createExtractValue); lua_setfield(L, -2, "ExtractValue");
-	lua_pushcfunction(L, createInsertValue); lua_setfield(L, -2, "InsertValue");
-	lua_pushcfunction(L, createMalloc); lua_setfield(L, -2, "Malloc");
-	lua_pushcfunction(L, createAlloca); lua_setfield(L, -2, "Alloca");
-	lua_pushcfunction(L, createFree); lua_setfield(L, -2, "Free");
-	lua_pushcfunction(L, createLoad); lua_setfield(L, -2, "Load");
-	lua_pushcfunction(L, createStore); lua_setfield(L, -2, "Store");
-	lua_pushcfunction(L, createGEP); lua_setfield(L, -2, "GEP");
-}
-
-/*
-	DynamicLibrary:
-*/
-#pragma mark DynamicLibrary
-int LoadLibraryPermanently(lua_State * L) {
-	const char * filename = luaL_checkstring(L, 1);
-	std::string ErrMsg;
-	bool res = llvm::sys::DynamicLibrary::LoadLibraryPermanently(filename, &ErrMsg);
-	lua_pushboolean(L, res);
-	lua_pushstring(L, ErrMsg.c_str());
-	return 2;
-}
-
-int SearchForAddressOfSymbol(lua_State * L) {
-	const char * symbolName = luaL_checkstring(L, 1);
-	lua_pushlightuserdata(L, llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(symbolName));
-	return 1;
-} 
-
-int AddSymbol(lua_State * L) {
-	const char * symbolName = luaL_checkstring(L, 1);
-	void * symbolValue = lua_touserdata(L, 2);
-	llvm::sys::DynamicLibrary::AddSymbol(symbolName, symbolValue);
-	return 0;
-}
-
-
-/*
-	Other
-*/
-#pragma mark Other
-int readBitcodeFile(lua_State * L) {
-	std::string filename = lua_tostring(L, 1);
-	
-	std::string err;
-	MemoryBuffer * buffer = MemoryBuffer::getFile(filename.c_str(), &err);
-	if (err.size()) {
-		luaL_error(L, "%s: %s", filename.c_str(), err.c_str());
-	}
-
-	Module * bitcodemodule = ParseBitcodeFile(buffer, (getGlobalContext()), &err);
-	delete buffer;
-	
-	if (err.size()) {
-		luaL_error(L, "%s: %s", filename.c_str(), err.c_str());
-	}
-	Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, bitcodemodule));
-	return 1;
-}
-/*
-static unsigned GetFID(const FIDMap& FIDs, const SourceManager &SM, SourceLocation L)
-{
-  FileID FID = SM.getFileID(SM.getInstantiationLoc(L));
-  FIDMap::const_iterator I = FIDs.find(FID);
-  assert(I != FIDs.end());
-  return I->second;
-}
-*/
-
-
-#pragma mark Clang
-using namespace clang;
-using namespace clang::driver;
-/*
-class LuaDiagnosticPrinter : public DiagnosticClient {
-	lua_State * L;
+#pragma mark Compiler
+class Compiler {
 public:
-	LuaDiagnosticPrinter(lua_State * L)
-    : L(L) {}
-	virtual ~LuaDiagnosticPrinter() {}
+	std::string		name;
+	Module *	module;
+	ModuleProvider * emp;
+	std::list<std::string>	iflags;
+	std::list<std::string>	dflags;
+	std::list<std::string>	wflags;
+	bool freeMachineCodeForFunction;
 	
-	virtual void HandleDiagnostic(Diagnostic::Level Level,
-                                const DiagnosticInfo &Info) {
-		std::ostringstream OS;
-
-		OS << "clang: ";
-
-		switch (Level) {
-			case Diagnostic::Ignored: assert(0 && "Invalid diagnostic type");
-			case Diagnostic::Note:    OS << "note: "; break;
-			case Diagnostic::Warning: OS << "warning: "; break;
-			case Diagnostic::Error:   OS << "error: "; break;
-			case Diagnostic::Fatal:   OS << "fatal error: "; break;
+	
+	Compiler(lua_State * L) : module(NULL) {
+		name = luaL_optstring(L, 1, "untitled");
+		// add standard headers?
+		// add standard defines (e.g. platform)?
+		freeMachineCodeForFunction = false;
+	}
+	~Compiler() {
+		std::string err;
+		if (module) {
+			EE->runStaticConstructorsDestructors(module, true);
+			EE->clearGlobalMappingsFromModule(module);
+			
+			if (freeMachineCodeForFunction) {
+				// iterate functions and remove from EE:
+				for (Module::iterator i = module->begin(), e = module->end(); i != e; ++i) {
+					EE->freeMachineCodeForFunction(i);
+				}
+			}
+			
+			module->dropAllReferences();
+			
+			printf("clang removed module %s %s\n", module->getModuleIdentifier().data(), err.data());
 		}
-
-		const FullSourceLoc& SourceLoc = Info.getLocation();
-		int LineNum = SourceLoc.getInstantiationLineNumber();
-		int ColNum = SourceLoc.getInstantiationColumnNumber();
-		int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
-		
-		std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
-		OS << SourceLoc.getManager().getBufferName(SourceLoc) << " " << FileOffset << " " << LineNum << ":" << ColNum << "\n";
-		
-		char errstr[128];
-		strncpy(errstr, LocBD.first+FileOffset, 127);
-//		ddebug("%s\n", errstr);
-		OS << errstr;
-
-		llvm::SmallString<100> OutStr;
-		Info.FormatDiagnostic(OutStr);
-		OS.write(OutStr.begin(), OutStr.size());
-		
-		const CodeModificationHint * hint = Info.getCodeModificationHints();
-		if (hint) {
-			OS << hint->CodeToInsert;
+		// this isn't safe, since we may be using things created in m:
+		//ee->deleteModuleProvider(mp); EE->removeModuleProvider(emp, &err);
+	}
+	
+	/*
+		Note: after this call, src is no longer a valid module
+		(it has been absorbed into module instead)
+	*/
+	bool link(lua_State * L, Module * src) {
+		std::string err;
+		if (module) {
+			Linker::LinkModules(module, src, &err);
+			if (err.length()) {
+				luaL_error(L, "link error: %s", err.data());
+				return false;
+			}
+		} else {
+			module = src;
 		}
-		
-		OS << "\n\n";
-		
-		lua_pushfstring(L, OS.str().c_str());
+		return true;
 	}
 };
-*/
 
-static std::vector<std::string> default_headers;
+template <> const char * Glue<Compiler>::usr_name() { return "Compiler"; }
 
-int addSearchPath(lua_State * L) {
-	std::string path = luaL_checkstring(L, 1);
-	// TODO: avoid double insertions
-	default_headers.push_back(path);
-	return 0;
+template <> Compiler * Glue<Compiler>::usr_new(lua_State * L) {
+	return new Compiler(L);
 }
-
-
-
-#pragma mark compile
-int compile(lua_State * L) {
-
-	std::string csource = luaL_checkstring(L, 1);
-	std::string srcname = luaL_optstring(L, 2, "untitled");
-	std::string predefines = luaL_optstring(L, 3, "");
-	std::string isysroot = luaL_optstring(L, 4, "/Developer/SDKs/MacOSX10.4u.sdk");
-	
-	
-	// todo: set include search paths
-	lua_settop(L, 0);
+template <> void Glue<Compiler>::usr_gc(lua_State * L, Compiler * self) {
+	delete self;
+}
+static int compiler_compile(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	std::string unitsrc = luaL_checkstring(L, 2);
+	std::string unitname = luaL_optstring(L, 3, "untitled");
 	
 	// Souce to compile
-	MemoryBuffer *buffer = MemoryBuffer::getMemBufferCopy(csource.c_str(), csource.c_str() + csource.size(), srcname.c_str());
+	llvm::MemoryBuffer *buffer = llvm::MemoryBuffer::getMemBufferCopy(unitsrc.c_str(), unitsrc.c_str() + unitsrc.size(), unitname.c_str());
 	if(!buffer) {
-		luaL_error(L, "couldn't load %s\n", srcname.c_str());
-		return 0;
+		luaL_error(L, "couldn't load %s", unitsrc.c_str());
 	}
 	
 	// Diagnostics (warning/error handling)
-	TextDiagnosticBuffer client;
-	Diagnostic diags(&client);
+	clang::TextDiagnosticBuffer client;
+	clang::Diagnostic diags(&client);
 	
-	
-//------------------------------------------------------
-// Platform info
-	TargetInfo *target = TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
+	//------------------------------------------------------
+	// Platform info
+	clang::TargetInfo *target = clang::TargetInfo::CreateTargetInfo(llvm::sys::getHostTriple());
 	
 	
 	llvm::StringMap<bool> Features;
-	target->getDefaultFeatures(std::string("yonah"), Features);
+	//target->getDefaultFeatures(std::string("yonah"), Features); // detects SSE and other processor-specific settings
+	target->getDefaultFeatures(std::string(""), Features); // detects SSE and other processor-specific settings
+	target->HandleTargetFeatures(Features);	// sets SSELevel for x86 targets
 	
-	LangOptions lang;
+//	uint64_t width = target->getPointerWidth(0);	// 32
+//	printf("3DNOW: %s\n", Features.lookup(std::string("3dnow")) ? "TRUE" : "FALSE");
+//	printf("3DNOWA: %s\n", Features.lookup(std::string("3dnowa")) ? "TRUE" : "FALSE");
+//	printf("MMX: %s\n", Features.lookup(std::string("mmx")) ? "TRUE" : "FALSE");
+//	printf("SSE: %s\n", Features.lookup(std::string("sse")) ? "TRUE" : "FALSE");
+//	printf("SSE2: %s\n", Features.lookup(std::string("sse2")) ? "TRUE" : "FALSE");
+//	printf("SSE3: %s\n", Features.lookup(std::string("sse3")) ? "TRUE" : "FALSE");
+//	printf("SSSE3: %s\n", Features.lookup(std::string("ssse3")) ? "TRUE" : "FALSE");
+//	printf("SSSE41: %s\n", Features.lookup(std::string("ssse41")) ? "TRUE" : "FALSE");
+//	printf("SSSE42: %s\n", Features.lookup(std::string("ssse42")) ? "TRUE" : "FALSE");
+	
+
+	clang::LangOptions lang;
+	client.setLangOptions(&lang);
 
 	// from clang-cc:684
 	// Allow the target to set the default the langauge options as it sees fit.
-	client.setLangOptions(&lang);
 	target->getDefaultLangOptions(lang);
-	target->HandleTargetFeatures(Features);
-	
-	/*
 	lang.C99 = 1;
-    lang.HexFloats = 1;
+	lang.HexFloats = 1;
 	lang.BCPLComment = 1;  // Only for C99/C++.
 	lang.Digraphs = 1;     // C94, C99, C++.
+	lang.Trigraphs = 0;	// UPDATE
 	// GNUMode - Set if we're in gnu99, gnu89, gnucxx98, etc.
 	lang.GNUMode = 1;
 	lang.ImplicitInt = 0;
 	lang.DollarIdents = 1;
+	lang.LaxVectorConversions = 1;	// UPDATE
 	lang.WritableStrings = 0;
 	lang.Exceptions = 0;
 	lang.Rtti = 0;
+//	lang.Rtti = 1;	// UPDATE
+	lang.NoBuiltin = 0;	// UPDATE
+	
 	lang.Bool = 0;
 	lang.MathErrno = 0;
+//	lang.MathErrno = 1;	// UPDATE
 	lang.InstantiationDepth = 99;
 	lang.OptimizeSize = 0;
 	lang.PICLevel = 1;
+//	lang.PICLevel = 0;	// UPDATE
 	lang.GNUInline = 0;
 	lang.NoInline = 1;
 	lang.Static = 0;
-	*/
-	lang.C99 = 1;
-    lang.HexFloats = 1;
-	lang.BCPLComment = 1;  // Only for C99/C++.
-	lang.Digraphs = 1;     // C94, C99, C++.
-	lang.GNUMode = 1;
-	lang.ImplicitInt = 0;
-	lang.Trigraphs = !lang.GNUMode;
-	lang.DollarIdents = 1;
-	lang.WritableStrings = 0;
-	lang.Exceptions = 0;
-	lang.Rtti = 1;
-	lang.Bool = lang.OpenCL | lang.CPlusPlus;
-	lang.MathErrno = 1;
-	lang.InstantiationDepth = 99;
-	lang.ObjCSenderDispatch = 0;
-	lang.OptimizeSize = 0;
-	lang.PICLevel = 0;
-	lang.GNUInline = !lang.C99;
-	lang.NoInline = 1;
-	lang.Static = 0;
 
-//------------------------------------------------------
-// Search paths
-	FileManager fm;
-	HeaderSearch headers(fm);
+	//------------------------------------------------------
+	// Search paths
+	clang::FileManager fm;
+	clang::HeaderSearch headers(fm);
 
 	bool verbose_headers = false;
-#ifdef LUA_CLANG_OSX
-	InitHeaderSearch initHeaders(headers, verbose_headers, isysroot);
-#else
-	InitHeaderSearch initHeaders(headers, verbose_headers);
-#endif
-
-	for(unsigned int i=0; i < default_headers.size(); ++i) {
-		initHeaders.AddPath(default_headers[i], 
-							InitHeaderSearch::Angled, 
+	clang::InitHeaderSearch initHeaders(headers, verbose_headers);
+	for (std::list<std::string>::iterator it = c->iflags.begin(); it != c->iflags.end(); it++) {
+		initHeaders.AddPath(*it, 
+							clang::InitHeaderSearch::Angled, 
 							false, 
 							true, 
 							false);
 	}
-	
-	/// CLANG HEADERS:
-//	Init.AddPath(MainExecutablePath.c_str(), InitHeaderSearch::System,
-//				false, false, false, true /*ignore sysroot*/);
-	
+	for (std::list<std::string>::iterator it = global_includes.begin(); it != global_includes.end(); it++) {
+		initHeaders.AddPath(*it, 
+							clang::InitHeaderSearch::Angled, 
+							false, 
+							true, 
+							false);
+	}
 	// Add system search paths
 	initHeaders.AddDefaultSystemIncludePaths(lang);
+	initHeaders.AddDefaultEnvVarPaths(lang);
 	initHeaders.Realize();
 	
-//------------------------------------------------------
-// Preprocessor 
+	//------------------------------------------------------
+	// Preprocessor 
 
-	SourceManager sm;
-	Preprocessor pp(diags, lang, *target, sm, headers);
+	clang::SourceManager sm;
+	clang::Preprocessor pp(diags, lang, *target, sm, headers);
+	
+	// TODO: verify correctness of this
+	std::string predefines;
+	for (std::list<std::string>::iterator it = c->dflags.begin(); it != c->dflags.end(); it++) {
+		predefines.append("\n");
+		predefines.append(*it);
+	}
 	pp.setPredefines(predefines);
 	
-	PreprocessorInitOptions InitOpts;
-	InitializePreprocessor(pp, InitOpts);
-
-//	printf("HS.stats\n");
-	HeaderSearch &HS = pp.getHeaderSearchInfo();
-//	HS.PrintStats();
+	clang::PreprocessorInitOptions InitOpts;
+	if(InitializePreprocessor(pp, InitOpts)) {
+		printf("ERROR initializing preprocessor\n");
+	}
 	
-
-//------------------------------------------------------
-// Source compilation
+	/*
+	// NECESSARY???
+	pp->getBuiltinInfo().InitializeBuiltins(pp->getIdentifierTable(),
+										  pp->getLangOptions().NoBuiltin);
+	*/
+	
+	//------------------------------------------------------
+	// Source compilation
 	sm.createMainFileIDForMemBuffer(buffer);
 
-	//ASTContext context(lang, sm, *target, idents, selects, builtin);
-	//ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), idents, selects, builtin);
-	ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), pp.getIdentifierTable(), pp.getSelectorTable(), pp.getBuiltinInfo());
-	CompileOptions copts; // e.g. optimizations
-	CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
+	clang::ASTContext context(pp.getLangOptions(), sm, pp.getTargetInfo(), pp.getIdentifierTable(), pp.getSelectorTable(), pp.getBuiltinInfo());
+	clang::CompileOptions copts; // e.g. optimizations
+	clang::CodeGenerator * codegen = CreateLLVMCodeGen(diags, unitname, copts, llvm::getGlobalContext());
 	
-	ParseAST(pp, codegen, context, false); // last flag is verbose statistics
-	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
-	if (cmodule) {
-		//lua_pushboolean(L, true);
-		Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
+	clang::ParseAST(pp, codegen, context, false); // last flag is verbose statistics
+	llvm::Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
+	if (cmodule) 
+	{
+		//------------------------------------------------------
+		// Successful compilation
+		
+		// link module:
+		eeRegisterModule(L, c, cmodule);
+		
+		lua_pushboolean(L, true);
+		lua_pushfstring(L, "successfully compiled %s.%s", c->name.data(), unitname.data());
 	} else {
-		lua_pushboolean(L, false);
-		lua_insert(L, 1);
-		// diagnose?
-//		unsigned count = diags.getNumDiagnostics();
-//		return count+1;
-		unsigned count = 0;
-		for(TextDiagnosticBuffer::const_iterator it = client.err_begin();
+		//------------------------------------------------------
+		// Failed compilation
+		
+		unsigned ecount = 0, wcount = 0;
+		for(clang::TextDiagnosticBuffer::const_iterator it = client.err_begin();
 			it != client.err_end();
 			++it)
 		{
-			FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
+			clang::FullSourceLoc SourceLoc = clang::FullSourceLoc(it->first, sm);;
 			int LineNum = SourceLoc.getInstantiationLineNumber();
 			int ColNum = SourceLoc.getInstantiationColumnNumber();
 			int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
@@ -2332,126 +415,355 @@ int compile(lua_State * L) {
 			strncpy(errstr+11, LocBD.first+start+10, 10);
 			errstr[21] = '\0';			
 
-			lua_pushfstring(L, "Error: %s %d:%d\n'%s'\n%s\n", 
+			printf("%s %d:%d\n'%s'\n%s\n", 
 								SourceLoc.getManager().getBufferName(SourceLoc),
 								LineNum, ColNum, 
 								errstr,
 								it->second.data());
-			count++;
+			ecount++;
+			
+			if(ecount > 250) break;
 		}
 
-		for(TextDiagnosticBuffer::const_iterator it = client.warn_begin();
-			it != client.warn_end();
-			++it)
-		{
-			FullSourceLoc SourceLoc = FullSourceLoc(it->first, sm);;
-			int LineNum = SourceLoc.getInstantiationLineNumber();
-			int ColNum = SourceLoc.getInstantiationColumnNumber();
-			int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
-
-			std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
-			char errstr[128];
-			int start = (FileOffset < 10) ? 0 : FileOffset-10;
-			strncpy(errstr, LocBD.first+start, 10);
-			errstr[10] = '^';
-			strncpy(errstr+11, LocBD.first+start+10, 10);
-			errstr[21] = '\0';
-
-			lua_pushfstring(L, "Warning: %s %d:%d\n'%s'\n%s\n",
-								SourceLoc.getManager().getBufferName(SourceLoc),
-								LineNum, ColNum, 
-								errstr,
-								it->second.data());
-			count++;
-		}
-
-		return count+1;
+//		for(clang::TextDiagnosticBuffer::const_iterator it = client.warn_begin();
+//			it != client.warn_end();
+//			++it)
+//		{
+//			clang::FullSourceLoc SourceLoc = clang::FullSourceLoc(it->first, sm);;
+//			int LineNum = SourceLoc.getInstantiationLineNumber();
+//			int ColNum = SourceLoc.getInstantiationColumnNumber();
+//			int FileOffset = SourceLoc.getManager().getFileOffset(SourceLoc);
+//
+//			std::pair< const char *, const char * > LocBD = SourceLoc.getBufferData();
+//			char errstr[128];
+//			int start = (FileOffset < 10) ? 0 : FileOffset-10;
+//			strncpy(errstr, LocBD.first+start, 10);
+//			errstr[10] = '^';
+//			strncpy(errstr+11, LocBD.first+start+10, 10);
+//			errstr[21] = '\0';
+//
+//			printf("%s %d:%d\n'%s'\n%s\n",
+//								SourceLoc.getManager().getBufferName(SourceLoc),
+//								LineNum, ColNum, 
+//								errstr,
+//								it->second.data());
+//			wcount++;
+//			
+//			if(wcount > 250) break;
+//		}
+		
+		lua_pushboolean(L, false);
+		lua_pushfstring(L, "compile failed: %d errors, %d warnings", ecount, wcount);
 	}
-
 	delete codegen;
 	delete target;
+	
+	return 2;
+}
+static int compiler_include(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (lua_isstring(L, 2) )
+		c->iflags.push_back(lua_tostring(L, 2)); 
+	return 0;
+}
+static int compiler_define(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (lua_isstring(L, 2) )
+		c->dflags.push_back(lua_tostring(L, 2)); 
+	return 0;
+}
+static int compiler_warn(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (lua_isstring(L, 2) )
+		c->wflags.push_back(lua_tostring(L, 2)); 
+	return 0;
+}
+static int compiler_dump(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (c->module) c->module->dump();
+	return 0;
+}
+static int compiler_functions(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	lua_newtable(L);
+	int n = 1;
+	for (Module::iterator i = c->module->begin(), e = c->module->end(); i != e; ++i) {
+		lua_pushstring(L, i->getName().data());
+		lua_rawseti(L, -2, n++);
+	}
 	return 1;
 }
+static int compiler_writebitcode(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	const char * filename = luaL_checkstring(L, 2);
+	std::ofstream ofile(filename, std::ios_base::out | std::ios_base::trunc);
+	llvm::WriteBitcodeToFile(c->module, ofile);
+	ofile.close();
+	return 0;
+}
+
+static int compiler_readbitcode(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	const char * filename = luaL_checkstring(L, 2);
+	std::string err;
+	llvm::MemoryBuffer * buffer = llvm::MemoryBuffer::getFile(filename, &err);
+	if (err.size()) {
+		luaL_error(L, "%s: %s", filename, err.data());
+	}
+	llvm::Module * bitcodemodule = llvm::ParseBitcodeFile(buffer, (llvm::getGlobalContext()), &err);
+	delete buffer;
+	if (err.size()) {
+		luaL_error(L, "%s: %s", filename, err.data());
+	}
+	eeRegisterModule(L, c, bitcodemodule);
+	return 0;
+}
+
+static int compiler_optimize(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	std::string olevel = luaL_optstring(L, 2, "02");
+	if (c->module == 0) { return 0; }
+	
+	llvm::TargetData * targetdata = new llvm::TargetData(c->module);
+	llvm::PassManager pm;
+	pm.add(targetdata);
+	
+	if (olevel == std::string("01")) {
+		pm.add(llvm::createPromoteMemoryToRegisterPass());
+		pm.add(llvm::createInstructionCombiningPass());
+		pm.add(llvm::createCFGSimplificationPass());
+		pm.add(llvm::createVerifierPass(llvm::PrintMessageAction));
+	} else if (olevel == std::string("03")) {
+		pm.add(llvm::createCFGSimplificationPass());
+		pm.add(llvm::createScalarReplAggregatesPass());
+		pm.add(llvm::createInstructionCombiningPass());
+		pm.add(llvm::createRaiseAllocationsPass());   // call %malloc -> malloc inst
+		pm.add(llvm::createCFGSimplificationPass());       // Clean up disgusting code
+		pm.add(llvm::createPromoteMemoryToRegisterPass()); // Kill useless allocas
+		pm.add(llvm::createGlobalOptimizerPass());       // OptLevel out global vars
+		pm.add(llvm::createGlobalDCEPass());          // Remove unused fns and globs
+		pm.add(llvm::createIPConstantPropagationPass()); // IP Constant Propagation
+		pm.add(llvm::createDeadArgEliminationPass());   // Dead argument elimination
+		pm.add(llvm::createInstructionCombiningPass());   // Clean up after IPCP & DAE
+		pm.add(llvm::createCFGSimplificationPass());      // Clean up after IPCP & DAE
+		pm.add(llvm::createPruneEHPass());               // Remove dead EH info
+		pm.add(llvm::createFunctionAttrsPass());         // Deduce function attrs
+		pm.add(llvm::createFunctionInliningPass());      // Inline small functions
+		pm.add(llvm::createArgumentPromotionPass());  // Scalarize uninlined fn args
+		pm.add(llvm::createSimplifyLibCallsPass());    // Library Call Optimizations
+		pm.add(llvm::createInstructionCombiningPass());  // Cleanup for scalarrepl.
+		pm.add(llvm::createJumpThreadingPass());         // Thread jumps.
+		pm.add(llvm::createCFGSimplificationPass());     // Merge & remove BBs
+		pm.add(llvm::createScalarReplAggregatesPass());  // Break up aggregate allocas
+		pm.add(llvm::createInstructionCombiningPass());  // Combine silly seq's
+		pm.add(llvm::createCondPropagationPass());       // Propagate conditionals
+		pm.add(llvm::createTailCallEliminationPass());   // Eliminate tail calls
+		pm.add(llvm::createCFGSimplificationPass());     // Merge & remove BBs
+		pm.add(llvm::createReassociatePass());           // Reassociate expressions
+		pm.add(llvm::createLoopRotatePass());            // Rotate Loop
+		pm.add(llvm::createLICMPass());                  // Hoist loop invariants
+		pm.add(llvm::createLoopUnswitchPass());
+		pm.add(llvm::createLoopIndexSplitPass());        // Split loop index
+		pm.add(llvm::createInstructionCombiningPass());
+		pm.add(llvm::createIndVarSimplifyPass());        // Canonicalize indvars
+		pm.add(llvm::createLoopDeletionPass());          // Delete dead loops
+		pm.add(llvm::createLoopUnrollPass());          // Unroll small loops
+		pm.add(llvm::createInstructionCombiningPass()); // Clean up after the unroller
+		pm.add(llvm::createGVNPass());                   // Remove redundancies
+		pm.add(llvm::createMemCpyOptPass());            // Remove memcpy / form memset
+		pm.add(llvm::createSCCPPass());                  // Constant prop with SCCP
+		pm.add(llvm::createInstructionCombiningPass());
+		pm.add(llvm::createCondPropagationPass());       // Propagate conditionals
+		pm.add(llvm::createDeadStoreEliminationPass());  // Delete dead stores
+		pm.add(llvm::createAggressiveDCEPass());   // Delete dead instructions
+		pm.add(llvm::createCFGSimplificationPass());     // Merge & remove BBs
+		pm.add(llvm::createStripDeadPrototypesPass()); // Get rid of dead prototypes
+		pm.add(llvm::createDeadTypeEliminationPass());   // Eliminate dead types
+		pm.add(llvm::createConstantMergePass());       // Merge dup global constants
+		pm.add(llvm::createVerifierPass(llvm::PrintMessageAction));
+	} else {
+		pm.add(llvm::createCFGSimplificationPass());
+		pm.add(llvm::createFunctionInliningPass());
+		pm.add(llvm::createJumpThreadingPass());
+		pm.add(llvm::createPromoteMemoryToRegisterPass());
+		pm.add(llvm::createInstructionCombiningPass());
+		pm.add(llvm::createCFGSimplificationPass());
+		pm.add(llvm::createScalarReplAggregatesPass());
+		pm.add(llvm::createLICMPass());
+		pm.add(llvm::createCondPropagationPass());
+		pm.add(llvm::createGVNPass());
+		pm.add(llvm::createSCCPPass());
+		pm.add(llvm::createAggressiveDCEPass());
+		pm.add(llvm::createCFGSimplificationPass());
+		pm.add(llvm::createVerifierPass(llvm::PrintMessageAction));
+	}
+	
+	pm.run(*c->module);
+	lua_pushfstring(L, "optimized module %s", c->name.data());
+	return 1;
+}
+
+static int compiler_getfunction(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	const char * funcname = luaL_checkstring(L, 2);
+	if (EE == 0) {
+		luaL_error(L, "no execution engine");
+	}
+	llvm::Function * f = c->module->getFunction(funcname);
+	if (f == 0) {
+		luaL_error(L, "function %s not found", funcname);
+	}
+	lua_pushlightuserdata(L, EE->getPointerToFunction(f));
+	return 1;
+}
+
+static int compiler_getluafunction(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	const char * funcname = luaL_checkstring(L, 2);
+	if (EE == 0) {
+		luaL_error(L, "no execution engine");
+	}
+	llvm::Function * f = c->module->getFunction(funcname);
+	if (f == 0) {
+		luaL_error(L, "function %s not found", funcname);
+	}
+	lua_pushcfunction(L, (lua_CFunction)EE->getPointerToFunction(f));
+	return 1;
+}
+
+static int compiler_datalayout(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (c->module) {
+		lua_pushstring(L, c->module->getDataLayout().data());
+		return 1;
+	}
+	return 0;
+}
+
+static int compiler_targettriple(lua_State * L) {
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (c->module) {
+		lua_pushstring(L, c->module->getTargetTriple().data());
+		return 1;
+	}
+	return 0;
+}
+
+static int compiler_module(lua_State * L) {
+	luaL_dostring(L, "require 'clang.llvm'");
+	Compiler * c = Glue<Compiler>::checkto(L, 1);
+	if (c->module && c->emp) {
+		Glue<ModuleProvider>::push(L, c->emp);
+		return 1;
+	}
+	return 0;
+}
+
+template <> void Glue<Compiler>::usr_mt(lua_State * L, int mt) {
+	lua_pushcfunction(L, compiler_compile);			lua_setfield(L, mt, "compile");
+	lua_pushcfunction(L, compiler_include);			lua_setfield(L, mt, "include");
+	lua_pushcfunction(L, compiler_warn);			lua_setfield(L, mt, "warn");
+	lua_pushcfunction(L, compiler_define);			lua_setfield(L, mt, "define");
+	lua_pushcfunction(L, compiler_dump);			lua_setfield(L, mt, "dump");
+	lua_pushcfunction(L, compiler_functions);		lua_setfield(L, mt, "functions");
+	lua_pushcfunction(L, compiler_writebitcode);	lua_setfield(L, mt, "writebitcode");
+	lua_pushcfunction(L, compiler_readbitcode);		lua_setfield(L, mt, "readbitcode");
+	lua_pushcfunction(L, compiler_optimize);		lua_setfield(L, mt, "optimize");
+	lua_pushcfunction(L, compiler_getfunction);		lua_setfield(L, mt, "getfunction");
+	lua_pushcfunction(L, compiler_getluafunction);	lua_setfield(L, mt, "getluafunction");
+	lua_pushcfunction(L, compiler_datalayout);		lua_setfield(L, mt, "datalayout");
+	lua_pushcfunction(L, compiler_targettriple);	lua_setfield(L, mt, "targettriple");
+	lua_pushcfunction(L, compiler_module);			lua_setfield(L, mt, "module");
+}
+
+/*
+	EE should be created on first use (first created module)
+	Subsequent modules should re-use the same EE:
+*/
+void eeRegisterModule(lua_State * L, Compiler * c, Module * module) {
+	
+	std::string err;
+	llvm::ExistingModuleProvider * emp = new llvm::ExistingModuleProvider(module);
+	
+	// register with JIT (create if necessary)
+	if (EE == 0) {
+		
+		// EE does not exist; create it (using this module as a basis):
+		EE = llvm::ExecutionEngine::createJIT(
+			emp,	// module provider
+			&err,	// error string
+			0,		// JITMemoryManager
+			llvm::CodeGenOpt::Default,	// JIT slowly (None, Default, Aggressive)
+			false	// allocate GlobalVariables separately from code
+		);
+		
+		if (EE == 0) {
+			luaL_error(L, "Failed to create Execution Engine: %s", err.data());
+			return;
+		} else {
+			printf("created Execution Engine %p\n", EE);
+		}
+		
+		// turn this off when not debugging:
+		EE->RegisterJITEventListener(&gLuaclangJITEventListener);
+		
+		//EE->InstallLazyFunctionCreator(lazyfunctioncreator);
+		EE->DisableLazyCompilation(true);
+		//EE->DisableGVCompilation();
+		
+		// When we ask to JIT a function, we should also JIT other
+		// functions that function depends on.  This would let us JIT in a
+		// background thread to avoid blocking the main thread during
+		// codegen.
+		//EE->DisableLazyCompilation();
+		
+		c->emp = emp;
+	}
+	
+	if (c->module == NULL) {
+		// assign new module:
+		c->module = module;
+		c->emp = emp;
+		EE->addModuleProvider(emp);
+	
+		// I guess we should do this:
+		module->setTargetTriple(llvm::sys::getHostTriple());
+		
+		// unladen swallow also does this:
+		module->setDataLayout(EE->getTargetData()->getStringRepresentation());
+		
+	} else {
+		// c has a module already, so just link to it:
+		c->link(L, module);
+	}
+	
+//	// Fill the ExecutionEngine with the addresses of known global variables.
+//	for (Module::global_iterator it = module->global_begin();
+//		it != module->global_end(); ++it) {
+//		EE->getOrEmitGlobalVariable(it);
+//	}
+	
+	// run all static constructors:
+	EE->runStaticConstructorsDestructors(c->module, false);
+}
+
+//int addSearchPath(lua_State * L) {
+//	std::string path = luaL_checkstring(L, 1);
+//	// TODO: avoid double insertions
+//	global_includes.push_back(path);
+//	return 0;
+//}
 
 /*
 	Lua interactions
 */
 #pragma mark Lua
-int getLuaState(lua_State * L) {
-	lua_pushlightuserdata(L, L);
-	return 1;
-}
-
-
-//extern CodeGenerator * clang_cc_main(int argc, char **argv, const char *srcname, const char *csource);
-extern int clang_cc(int argc, char **argv);
-int lua_clang_cc(lua_State *L) {
-//	luaL_argcheck(L, lua_type(L,1)==LUA_TTABLE, 1, "compiler flags table");
-//	luaL_argcheck(L, lua_type(L,2)==LUA_TSTRING, 2, "source string");	
-
-
-	const char *args[] = {
-	};
-	
-	clang_cc(5, (char **)args);
-
-		
-		
-//	void *xprintf = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("printf");
-//	void *xsin = llvm::sys::DynamicLibrary::SearchForAddressOfSymbol("sin");
-		
-		
-/*	std::vector<std::string> args;
-	int len = lua_objlen(L, 1);
-	for(int i=1; i <= len; i++) {
-		lua_rawgeti(L, 1, i);
-		const char *s = lua_tostring(L, -1);
-		args.push_back(std::string(s));
-		lua_pop(L, 1);
-	}
-	
-	const char *argv[256];
-	for(unsigned int i=0; i < args.size(); i++) {
-		argv[i] = args[i].c_str();
-			ddebug("argv[%d]: %s\n", i, argv[i]);
-	}
-	
-	std::string csource = lua_tostring(L, 2);
-	
-	// Diagnostics (warning/error handling)
-//		LuaDiagnosticPrinter client(L);
-//		Diagnostic diags(&client);
-	std::string srcname = luaL_optstring(L, 3, "untitled");
-	
-//		CompileOptions copts; // e.g. optimizations
-//		CodeGenerator * codegen = CreateLLVMCodeGen(diags, srcname, copts, getGlobalContext());
-	
-	CodeGenerator * codegen = clang_cc_main(args.size(), (char **)argv, srcname.data(), csource.data());
-	if(!codegen) return 0;
-	Module * cmodule = codegen->ReleaseModule(); // or GetModule() if we want to reuse it?
-	if(cmodule) {
-	
-		// link with other module? JIT?
-		//lua_pushboolean(L, true);
-//		Glue<Module>::push(L, cmodule);
-
-		
-//		Function *F = cmodule->getFunction("sin");
-
-	
-		//lua_pushboolean(L, true);
-		Glue<ModuleProvider>::push(L, createModuleProviderFromJIT(L, cmodule));
+int lua_pointer(lua_State * L) {
+	if (lua_toboolean(L, 1)) {
+		lua_pushvalue(L, lua_upvalueindex(1));
 	} else {
-		lua_pushboolean(L, false);
-//			lua_insert(L, 1);
-		// diagnose?
-//			unsigned count = diags.getNumDiagnostics();
-//			return count+1;
-		return 1;
+		lua_pushlightuserdata(L, L);
 	}
-	
-	delete codegen;
-	*/
 	return 1;
 }
 
@@ -2461,6 +773,7 @@ int lua_clang_cc(lua_State *L) {
 */
 int luaclose_clang(lua_State * L) {
 	if (EE) {
+		// TODO: enable some of these?
 //		EE->clearAllGlobalMappings();
 //		EE->UnregisterJITEventListener(&gLuaclangJITEventListener);
 //		delete EE;
@@ -2505,88 +818,39 @@ static void gc_sentinel(lua_State * L, int idx, lua_CFunction callback) {
 	lua_pop(L, 1); // lua::sentinel
 }
 
+static int clanglib_initialized = 0;
+
 int luaopen_clang(lua_State * L) {
 
-	// too damn useful to not have around:
-	llvm::InitializeAllTargetInfos();
-	llvm::InitializeAllTargets();
-	llvm::InitializeAllAsmPrinters();
-	if (llvm::InitializeNativeTarget()) 
-		luaL_error(L, "InitializeNativeTarget failure");
-		
-//	llvm::sys::DynamicLibrary::AddSymbol("printf", (void *)printf);
+	if (clanglib_initialized == 0) {
+		clanglib_initialized = 1;
+		// Set an error handler, so that any LLVM backend diagnostics go through our
+		// error handler.
+		llvm::llvm_install_error_handler(llvmErrorHandler, NULL);
 
-	const char * libname = lua_tostring(L, -1);
+		llvm::InitializeAllTargetInfos();
+		llvm::InitializeAllTargets();
+		llvm::InitializeAllAsmPrinters();
+		if (llvm::InitializeNativeTarget()) 
+			luaL_error(L, "InitializeNativeTarget failure");
+	}
+		
+	const char * libname = "clang";
 	struct luaL_reg lib[] = {
-		{"LoadLibraryPermanently", LoadLibraryPermanently },
-		{"SearchForAddressOfSymbol", SearchForAddressOfSymbol },
-		{"AddSymbol", AddSymbol },
-		
-		{"readBitcodeFile", readBitcodeFile },
-		
-		{"addSearchPath", addSearchPath },
-		{"compile", compile},
-		
-		{"getLuaState", getLuaState},
-		
-		{"cc", lua_clang_cc},
+		//{"lua_pointer", lua_pointer},
 		{NULL, NULL},
 	};
 	luaL_register(L, libname, lib);
 	
-	//lua::dump(L, "luaopen_clang lib");
+	lua_pushlightuserdata(L, L);
+	lua_pushcclosure(L, lua_pointer, 1);
+	lua_setfield(L, -2, "lua_pointer");
 	
-	//Glue<llvm::Module>::define(L);			Glue<llvm::Module>::register_ctor(L);
-	Glue<llvm::ModuleProvider>::define(L);	Glue<llvm::ModuleProvider>::register_ctor(L);
+	Glue<Compiler>::define(L);				
+	Glue<Compiler>::register_ctor(L);
 	
-	Glue<llvm::Type>::define(L);			Glue<llvm::Type>::register_table(L);
-	Glue<llvm::StructType>::define(L);		Glue<llvm::StructType>::register_ctor(L);
-	Glue<llvm::SequentialType>::define(L);
-	Glue<llvm::PointerType>::define(L);		Glue<llvm::PointerType>::register_ctor(L);
-	Glue<llvm::ArrayType>::define(L);		Glue<llvm::ArrayType>::register_ctor(L);
-	Glue<llvm::VectorType>::define(L);		Glue<llvm::VectorType>::register_ctor(L);
-	Glue<llvm::OpaqueType>::define(L);		Glue<llvm::OpaqueType>::register_ctor(L);
-	Glue<llvm::FunctionType>::define(L);	Glue<llvm::FunctionType>::register_ctor(L);
-		
-	Glue<llvm::Value>::define(L);
-	Glue<llvm::Argument>::define(L);
-	Glue<llvm::Instruction>::define(L); 
-	Glue<llvm::PHINode>::define(L); 
-	Glue<llvm::BasicBlock>::define(L);		Glue<llvm::BasicBlock>::register_ctor(L);
-	Glue<llvm::Constant>::define(L); 
-	Glue<llvm::GlobalValue>::define(L); 
-	Glue<llvm::Function>::define(L);		Glue<llvm::Function>::register_ctor(L);
-	Glue<llvm::GlobalVariable>::define(L);	Glue<llvm::GlobalVariable>::register_ctor(L);
-	
-	Glue<IRBuilder<> >::define(L);			Glue<llvm::GlobalVariable>::register_ctor(L);
-	Glue<ExecutionEngine>::define(L);		Glue<llvm::ExecutionEngine>::register_table(L);
-	
-	Glue<Compiler>::define(L);				Glue<Compiler>::register_ctor(L);
-	
-	//lua::dump(L, "luaopen_clang defines");
-	
-	lua_newtable(L);
-	lua_pushinteger(L, GlobalValue::ExternalLinkage); lua_setfield(L, -2, "External");
-	lua_pushinteger(L, GlobalValue::LinkOnceAnyLinkage); lua_setfield(L, -2, "LinkOnce");
-	lua_pushinteger(L, GlobalValue::WeakAnyLinkage); lua_setfield(L, -2, "Weak");
-	lua_pushinteger(L, GlobalValue::AppendingLinkage); lua_setfield(L, -2, "Appending");
-	lua_pushinteger(L, GlobalValue::InternalLinkage); lua_setfield(L, -2, "Internal");
-	lua_pushinteger(L, GlobalValue::DLLImportLinkage); lua_setfield(L, -2, "DLLImport");
-	lua_pushinteger(L, GlobalValue::DLLExportLinkage); lua_setfield(L, -2, "DLLExport");
-	lua_pushinteger(L, GlobalValue::ExternalWeakLinkage); lua_setfield(L, -2, "ExternalWeak");
-	lua_pushinteger(L, GlobalValue::GhostLinkage); lua_setfield(L, -2, "Ghost");
-	lua_pushinteger(L, GlobalValue::CommonLinkage); lua_setfield(L, -2, "Common");
-	lua_setfield(L, -2, "Linkage");
-	
-	//lua::dump(L, "luaopen_clang constants");
-	
-	// create a default module (+ ensures that EE exists)
-//	lua_pushstring(L, "main");
-//	lua_insert(L, 1);
-//	Glue<llvm::Module>::create(L);
-//	lua_setfield(L, -2, "main");
-
-	gc_sentinel(L, lua_gettop(L), luaclose_clang); 
+	// unload handler
+	//gc_sentinel(L, lua_gettop(L), luaclose_clang); 
 	
 	return 1;
 }

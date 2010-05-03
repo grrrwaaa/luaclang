@@ -1,0 +1,489 @@
+--[[
+	Stub file for luadoc
+--]]
+
+--- Luaclang is a module (loadable library) for the Lua programming language (www.lua.org) providing bindings to the LLVM APIs (www.llvm.org), in order to control LLVM from within Lua scripts.
+-- clang.llvm is built against the LLVM 2.6 stable release, for Lua 5.1.
+-- clang.llvm aims to closely follow the LLVM API, but making use of Lua idioms where possible. 
+
+
+module "clang.llvm" 
+
+--- dump the module contents to the standard output stream
+-- @param self (ModuleProvider)
+function ModuleProvider:dump() end
+
+--- Function inherits all methods of GlobalValue
+-- @param self (ModuleProvider)
+-- @param name (string) name of function to find, or name of function to create
+-- @param funtype (FunctionType) (optional: implies creation of a new Function)
+-- @param linkagetype (LinkageType) (optional: for new Function only)
+-- @return Function
+function ModuleProvider:Function(name, funtype, linkagetype) end
+
+-- @param self (ModuleProvider)
+-- @param type (Type userdata)
+-- @param name (string)
+-- @return success (bool)
+function ModuleProvider:addTypeName(type, name) end
+
+-- @param self (ModuleProvider)
+-- @param Type
+-- @return string
+function ModuleProvider:getTypeName(Type) end
+
+-- @param self (ModuleProvider)
+-- @param name (string)
+-- @return Type
+function ModuleProvider:getTypeByName(name) end
+
+-- @param self (Type)
+-- @return integer
+function Type:id() end
+
+-- @param self (Type)
+-- @return boolean
+function Type:isinteger() end
+
+-- @param self (Type)
+-- @return boolean
+function Type:isfloatingpoint() end
+
+-- @param self (Type)
+-- @return boolean
+function Type:isabstract() end
+
+-- @param self (Type)
+-- @return boolean
+function Type:issized() end
+
+-- @param self (Type)
+-- @return boolean
+function Type:isValidReturnType() end
+
+-- @param self (Type)
+-- @return integer
+function Type:sizeinbits() end
+
+-- @param self (Type)
+-- @param addressSpace (optional integer)
+-- @return PointerType
+function Type:pointer(addressSpace) end
+
+--- StructType inherits all methods from Type
+-- @param typelist (table)
+-- @return StructType
+function StructType(typelist) end
+
+-- @param self (StructType)
+-- @param element (integer)
+-- @return Type
+function StructType:getelementtype(element) end
+
+-- @param self (StructType)
+-- @return Types of all elements
+function StructType:gettypes() end
+
+--- SequentialType inherits all methods from Type
+-- @param self (SequentialType)
+-- @return Type
+function SequentialType:type() end
+
+--- PointerType inherits all methods from SequentialType
+-- @param type (Type)
+-- @return PointerType
+function SequentialType(type) end
+
+--- ArrayType inherits all methods from SequentialType
+-- @param type (Type)
+-- @param len (integer)
+-- @return ArrayType
+function ArrayType(type, len) end
+
+--- VectorType inherits all methods from SequentialType
+-- @param type (Type)
+-- @param len (integer)
+-- @return VectorType
+function VectorType(type, len) end
+
+--- OpaqueType inherits all methods from Type
+-- @return OpaqueType
+function OpaqueType() end
+
+--- ArrayType inherits all methods from SequentialType
+-- @param self (SequentialType)
+-- @return Type
+function SequentialType:type() end
+
+--- FunctionType inherits all methods from Type
+-- @param ret (Type) return type of function
+-- @param ... (Type) argument types of function
+-- @return FunctionType
+function FunctionType(ret, ...) end
+
+-- @param self (FunctionType)
+-- @return bool
+function FunctionType:isvararg() end
+
+-- @param self (FunctionType)
+-- @param i (int)
+-- @return Type
+function FunctionType:getparamtype(i) end
+
+-- @param self (FunctionType)
+-- @return Type
+function FunctionType:getreturntype() end
+
+-- @param self (Value)
+-- @return Type
+function Value:type() end
+
+-- @param self (Value)
+-- @return string
+function Value:name() end
+
+-- @param self (Value)
+-- @param replacement (Value)
+-- @return string
+function Value:replace(replacement) end
+
+-- @param self (Value)
+-- @return integer
+function Value:uses() end
+
+--- Argument inherits all methods of Value
+-- @param self (Argument)
+-- @return integer
+function Argument:argno() end
+
+-- @param self (Argument)
+-- @return byval
+function Argument:byval() end
+
+--- Instruction inherits all methods of Value
+-- @param self (Instruction)
+-- @return BasicBlock
+function Instruction:parent() end
+
+-- @param self (Instruction)
+function Instruction:erase() end
+
+-- @param self (Instruction)
+-- @return string
+function Instruction:opcode() end
+
+--- PHINode inherits all methods of Instruction
+-- @param self (Instruction)
+-- @param value (Value)
+-- @param block (BasicBlock)
+function Instruction:addincoming(value, block) end
+
+--- BasicBlock inherits all methods of Value
+-- @param name (string)
+-- @param parent (Function)
+-- @param insertbefore (BasicBlock)
+-- @return BasicBlock
+function BasicBlock(name, parent, insertbefore) end
+
+-- @param self (BasicBlock)
+-- @return Function
+function BasicBlock:parent() end
+
+-- @param self (BasicBlock)
+function BasicBlock:erase() end
+
+-- @param self (BasicBlock)
+-- @return Instruction
+function BasicBlock:terminator() end
+
+-- @param self (BasicBlock)
+-- @param i (integer) instruction number
+-- @return Instruction
+function BasicBlock:instruction(i) end
+
+-- @param self (BasicBlock)
+-- @return Instruction
+function BasicBlock:front() end
+
+-- @param self (BasicBlock)
+-- @return Instruction
+function BasicBlock:back() end
+
+--- GlobalValue inherits all methods of Value
+-- @param self (GlobalValue)
+-- @param linkagetype (LinkageType) (optional, if present, setter, else, getter)
+-- @return linkagetype (LinkageType)
+function GlobalValue:linkage(linkagetype) end
+
+-- @param self (GlobalValue)
+-- @return boolean
+function GlobalValue:isdeclaration() end
+
+-- @param self (GlobalValue)
+-- @return lightuserdata
+function GlobalValue:getptr() end
+
+--- GlobalVariable inherits all methods of GlobalValue
+-- @param type (Type)
+-- @param name (string)
+-- @param const (boolean)
+-- @param init initialization value
+-- @return GlobalVariable
+function GlobalVariable(type, name, const, init) end
+
+-- @param self (GlobalVariable)
+function GlobalVariable:erase() end
+
+-- @param self (GlobalVariable)
+-- @return boolean
+function GlobalVariable:isconstant() end
+
+--- get or set the initialization value for a GlobalVariable
+-- @param self (GlobalVariable)
+-- @param init (optional)
+function GlobalVariable:initializer(init) end
+
+
+--- Function inherits all methods of GlobalValue
+-- @param module (ModuleProvider)
+-- @param name (string) name of function to find, or name of function to create
+-- @param funtype (FunctionType) (optional: implies creation of a new Function)
+-- @param linkagetype (LinkageType) (optional: for new Function only)
+-- @return Function
+function Function(module, name) end
+function Function(module, name, funtype, linkagetype) end
+
+-- @param self (Function)
+-- @return integer
+function Function:intrinsic() end
+
+-- @param self (Function)
+function Function:deletebody() end
+
+-- @param self (Function)
+function Function:erase() end
+
+-- get or set calling convention
+-- @param self (Function)
+-- @param conv (optional integer)
+-- @return integer
+function Function:callingconv(conv) end
+
+-- @param self (Function)
+-- @param i (integer) argument no.
+-- @return Argument
+function Function:argument(i) end
+
+-- @param self (Function)
+-- @param i (integer) block no.
+-- @return BasicBlock
+function Function:block(i) end
+
+-- @param self (Function)
+-- @return boolean
+function Function:verify() end
+
+-- @param self (Function)
+-- @return lightuserdata
+function Function:getptr() end
+
+--- Warning: this code assumes the function type is a valid lua_CFunction!
+-- @param self (Function)
+-- @return function
+function Function:pushcfunction() end
+
+--- IRBuilder
+-- @return IRBuilder
+function IRBuilder() end
+
+-- @param self (IRBuilder)
+-- @param ty (Type)
+-- @param name (string)
+-- @return PHINode
+function IRBuilder:createPHI(ty, name) end
+
+-- @param self (IRBuilder)
+-- @param branch (BasicBlock)
+-- @return Instruction
+function IRBuilder:createBr(branch) end
+
+-- @param self (IRBuilder)
+-- @param cond (Value)
+-- @param iftrue (BasicBlock)
+-- @param iffalse (BasicBlock)
+-- @return Instruction
+function IRBuilder:createCondBr(cond, iftrue, iffalse) end
+
+-- @param self (IRBuilder)
+-- @param ret (Value)
+-- @return Instruction
+function IRBuilder:createRet(ret) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @return Value
+function IRBuilder:createAdd(x, y) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @return Value
+function IRBuilder:createSub(x, y) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @return Value
+function IRBuilder:createMul(x, y) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @return Value
+function IRBuilder:createDiv(x, y) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @return Value
+function IRBuilder:createRem(x, y) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @return Value
+function IRBuilder:createNeg(x) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @return Value
+function IRBuilder:createNot(x) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpEQ(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpNE(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpGT(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpLT(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpGE(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param y (Value)
+-- @param option (boolean) ordered comparision
+-- @return Value
+function IRBuilder:createCmpLE(x, y, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param option (boolean) signed
+-- @return Value
+function IRBuilder:createFToI(x, option) end
+
+-- @param self (IRBuilder)
+-- @param x (Value)
+-- @param option (boolean) signed
+-- @return Value
+function IRBuilder:createIToF(x, option) end
+
+-- @param self (IRBuilder)
+-- @param module (ModuleProvider)
+-- @param funcname (string) function to call
+-- @param ... (Value) arguments to function
+-- @return Value
+function IRBuilder:createCall(module, funcname, ...) end
+
+-- @param self (IRBuilder)
+-- @param aggregate (Value)
+-- @param idx (integer) 
+-- @return Value
+function IRBuilder:createExtractValue(aggregate, idx) end
+
+-- @param self (IRBuilder)
+-- @param aggregate (Value)
+-- @param idx (integer) 
+-- @param val (Value) value to insert
+-- @return Value
+function IRBuilder:createcreateInsertValue(aggregate, idx, val) end
+
+-- @param self (IRBuilder)
+-- @param type (Type)
+-- @param size (integer) 
+-- @return Instruction
+function IRBuilder:createMalloc(type, size) end
+
+-- @param self (IRBuilder)
+-- @param type (Type)
+-- @param size (integer) 
+-- @return Instruction
+function IRBuilder:createAlloca(type, size) end
+
+-- @param self (IRBuilder)
+-- @param value (Value)
+-- @return Instruction
+function IRBuilder:createFree(value) end
+
+-- @param self (IRBuilder)
+-- @param pointer (Value)
+-- @param volatile (boolean, optional)
+-- @return Instruction
+function IRBuilder:createLoad(pointer, volatile) end
+
+-- @param self (IRBuilder)
+-- @param pointer (Value)
+-- @param value (Value)
+-- @param volatile (boolean, optional)
+-- @return Instruction
+function IRBuilder:createStore(pointer, value, volatile) end
+
+-- @param self (IRBuilder)
+-- @param pointer (Value)
+-- @param ... (Value) indices into the pointer
+-- @return Value
+function IRBuilder:createGEP(pointer, ...) end
+
+
+-- @param self (IRBuilder)
+-- @param v (Value)
+-- @param type (Type)
+-- @return Value
+function IRBuilder:createBitCast(v, type) end
+
+-- @param filename (string)
+function LoadLibraryPermanently(filename) end
+
+-- @param symbolName (string)
+-- @return lightuserdata
+function SearchForAddressOfSymbol(symbolName) end
+
+-- @param symbolName (string)
+-- @param symbolValue (lightuserdata)
+function AddSymbol(symbolName, symbolValue) end
+

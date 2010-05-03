@@ -1,0 +1,79 @@
+--[[
+	Stub file for luadoc
+--]]
+
+--- Luaclang is a module (loadable library) for the Lua programming language (www.lua.org) in order to control Clang (http://clang.llvm.org/) from within Lua scripts.
+-- clang is built against the LLVM 2.6 stable release, for Lua 5.1.
+
+module "clang" 
+
+--- return the pointer to the running coroutine (lua_State *) as a lightuserdata
+-- @param root (optional): if true, returns the lua_State in which module clang was required, rather than the currently running coroutine state
+function lua_pointer(root) end
+
+--- create a new Compiler object
+-- @return Compiler object
+function Compiler() end
+
+--- add an include path to a Compiler
+-- @param path (string) the include path to add to the Compiler
+function Compiler:include(path) end
+
+--- add a define to a Compiler
+-- @param def (string) the definition to add
+function Compiler:define(def) end
+
+--- add a warning flag to the Compiler
+-- @param flag (string) the warning flag to add
+function Compiler:warn(flag) end
+
+--- compile a string of C code
+-- @param src the C code to compile
+-- @param name the name for this code (optional)
+-- @return (boolean, string) status and error (if status is false)
+function Compiler:compile(src, name) end
+
+--- list the function names defined by this Compiler
+-- @return table 
+function Compiler:functions() end
+
+--- print out the LLVM IR for this Compiler
+function Compiler:dump() end
+
+--- write the LLVM IR out as bitcode
+-- @param path (string) path to write bitcode to
+function Compiler:writebitcode(path) end
+
+--- read existing LLVM bitcode and link into the Compiler
+-- @param path (string) path to read bitcode from
+function Compiler:readbitcode(path) end
+
+
+--- print out the LLVM IR for this Compiler
+-- @param level (string) optimization level. valid levels include: 'O1', 'O2', 'O3'
+function Compiler:optimize(level) end
+
+
+--- retrieve a function pointer from the Compiler (causes JIT if necessary)
+-- @param funcname (string) name of function to retrieve
+-- @return fptr (lightuserdata) function pointer retrieved
+function Compiler:getfunction(funcname) end
+
+
+--- retrieve a lua_CFunction from the Compiler (causes JIT if necessary)
+-- @param funcname (string) name of function to retrieve
+-- @return (function) the function as a Lua-callable function
+function Compiler:getluafunction(funcname) end
+
+
+--- get the LLVM datalayout for this Compiler
+-- @return (string)
+function Compiler:datalayout() end
+
+--- get the LLVM target triple for this Compiler
+-- @return (string)
+function Compiler:targettriple() end
+
+--- get the LLVM module in this Compiler
+-- @return (clang.llvm.ModuleProvider)
+function Compiler:module() end
