@@ -3,10 +3,58 @@ LLVM configure:
 OSX
 ===
 
-Grab the 2.7 release from http://www.llvm.org/releases/download.html#2.7
-The clang-2.7 folder should be renamed 'clang' and copied into llvm-2.7/tools/
+svn co http://llvm.org/svn/llvm-project/llvm/trunk llvm
+cd llvm
+cd tools
+svn co http://llvm.org/svn/llvm-project/cfe/trunk clang
+# edit llvm/tools/Makefile to clang to the list of PARALLEL_DIRS before continuing
+# to build against 10.4, we also need to comment out #define HAVE_BACKTRACE 1' from include/llvm/Config/config.h after configure.
 
+cd ..
+#see http://www.llvm.org/docs/GettingStarted.html#environment
+env MACOSX_DEPLOYMENT_TARGET=10.4 ./configure --enable-targets=x86 --enable-jit --enable-optimized --enable-pic 
+sudo env MACOSX_DEPLOYMENT_TARGET=10.4 make UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.4u.sdk/
+sudo make install -k
+sudo scp -r Release/lib/libclang* /usr/local/lib
+sudo scp -r Release/lib/clang* /usr/local/lib
+sudo scp -r tools/clang/include/clang/ /usr/local/include/clang
+find /usr/local/include/clang \( -name .svn -and -print -and -exec rm -rf {} \; -and -prune \)
+find /usr/local/lib \( -name .svn -and -print -and -exec rm -rf {} \; -and -prune \)
+
+
+
+
+
+universal:
+
+#configure:
 sudo make clean
-env MACOSX_DEPLOYMENT_TARGET=10.5 ./configure --enable-targets=x86,x86_64 --enable-jit --enable-optimized --enable-pic
-env MACOSX_DEPLOYMENT_TARGET=10.5 sudo make DARWIN_VERSION=10.5 UNIVERSAL=1 UNIVERSAL_ARCH="i386 x86_64" UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.5.sdk/
-sudo make install
+export MACOSX_DEPLOYMENT_TARGET=10.4
+export UNIVERSAL=true
+export UNIVERSAL_ARCH="i386 ppc"
+export UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.4u.sdk/
+export CFLAGS="-mmacosx-version-min=10.4"
+export CXXFLAGS="-mmacosx-version-min=10.4" 
+./configure --enable-optimized --enable-jit --enable-targets=x86,powerpc
+
+# modifications to config.h for 10.4:
+edit include/llvm/Config/config.h
+# comment out HAVE_BACKTRACE 1
+# comment out HAVE_EXECINFO_H 1
+
+export MACOSX_DEPLOYMENT_TARGET=10.4
+export UNIVERSAL=true
+export UNIVERSAL_ARCH="i386 ppc"
+export UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.4u.sdk/
+export CFLAGS="-mmacosx-version-min=10.4"
+export CXXFLAGS="-mmacosx-version-min=10.4" 
+make libs-only
+
+
+export UNIVERSAL=true
+export UNIVERSAL_ARCH="i386 x86_64 ppc ppc64"
+export UNIVERSAL_SDK_PATH=/Developer/SDKs/MacOSX10.5.sdk/
+export CFLAGS="-mmacosx-version-min=10.5"
+export CXXFLAGS="-mmacosx-version-min=10.5" 
+./configure --enable-optimized --enable-jit --enable-targets=x86,x86_64,powerpc
+make libs-only
