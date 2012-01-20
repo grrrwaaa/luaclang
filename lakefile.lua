@@ -6,22 +6,19 @@ LLVM_LIBS = "LLVMJIT LLVMTarget LLVMScalarOpts LLVMSupport LLVMLinker LLVMCore L
 CLANG_DIR = 'llvm-3.0'
 CLANG_LIBS = "clangBasic clangFrontend clangAST clangSerialization clangSema clangLex clangAnalysis clangCodeGen clangDriver clangParse"
 
-local luaclang = cpp.shared{ 
+cpp.shared{ 
 	'clang', 
-	
 	-- source files:
 	src = {
 		'src/Compiler.cpp',
 		'src/luaopen_clang.cpp', 
 	},
-	
 	-- LLVM needs these defines / flags:
 	defines = {
 		"__STDC_LIMIT_MACROS", 
 		"__STDC_CONSTANT_MACROS",
 	},
 	flags = "-fno-rtti",
-	
 	-- library dependencies:
 	needs = { 
 		'lua', 
@@ -30,8 +27,4 @@ local luaclang = cpp.shared{
 	},
 	-- put results in debug / release folders 
 	--odir = true,	
-}
-
-default{ 
-	luaclang 
 }
