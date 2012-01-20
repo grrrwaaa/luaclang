@@ -2,6 +2,16 @@
 
 Accessing LLVM/Clang from within Lua.
 
+## Building ##
+
+There is an Xcode 3 project in /osx.
+
+Alternatively, it can be built using Lake, if you have Lua and LuaFileSystem in your path, with:
+
+./lake
+
+## License ##
+
 Luaclang is released under the MIT license (the same as Lua 5.1). 
 
 Luaclang can be used for any purpose, including commercial purposes, at absolutely no cost. No paperwork, no royalties, no copyleft". The license is compatible with GPL. 
