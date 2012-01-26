@@ -18,13 +18,21 @@ path = table.concat(path)
 print(path)
 
 require "clang"
-	for k, v in pairs(clang) do print(string.format("clang.%s = %s", k, tostring(v))) end
+for k, v in pairs(clang) do 
+	print(string.format("clang.%s = %s", k, tostring(v))) 
+end
 
 local cc = clang.Compiler()
 
+print()
+
 --local app = (require"app")
 cc:include(path .. "headers")
-cc:include("/usr/include")
+
+if not clang.hosttriple:find("apple") then
+	-- problematic on OSX
+	cc:include("/usr/include")
+end
 
 cc:define("SCALAR=7")
 

@@ -42,6 +42,7 @@
 #include "llvm/Module.h"
 #include "llvm/PassManager.h"
 //#include "llvm/Support/Allocator.h"
+#include "llvm/Support/DynamicLibrary.h"
 #include "llvm/Support/ErrorHandling.h"
 //#include "llvm/Support/IRBuilder.h"
 //#include "llvm/Support/ManagedStatic.h"
@@ -671,5 +672,22 @@ void Compiler :: optimize(std::string olevel) {
 	
 	pm.run(*mImpl->module);
 }	
+
+bool Compiler::loadLibrary(const char * filename, std::string& ErrMsg) {
+	return llvm::sys::DynamicLibrary::LoadLibraryPermanently(filename, &ErrMsg);
+}
+
+void * Compiler::findSymbol(const char * symbolName) {
+	return llvm::sys::DynamicLibrary::SearchForAddressOfSymbol(symbolName);
+} 
+
+void Compiler::addSymbol(const char * symbolName, void * symbolValue) {
+	llvm::sys::DynamicLibrary::AddSymbol(symbolName, symbolValue);
+}
+
+const char * Compiler::hostTriple() { 
+	return LLVM_HOSTTRIPLE; 
+}
+
 
 } // al::

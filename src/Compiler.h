@@ -138,7 +138,18 @@ public:
 	
 	///! print module bytecode to stdout
 	void dump();
-				
+	
+	static const char * hostTriple();
+	
+	///! load a dynamic library:
+	static bool loadLibrary(const char * filename, std::string& ErrMsg);
+	
+	///! find a symbol (in the executable or dynamically loaded library)
+	static void * findSymbol(const char * symbolName);
+	
+	///! set a symbol address
+	static void addSymbol(const char * symbolName, void * symbolValue);		
+			
 private:
 	friend class ModuleImpl;
 	class ModuleImpl * mImpl;

@@ -43,6 +43,7 @@ extern "C" {
 #include "lua_compiler.hpp"
 #include "lua_utility.h"
 
+
 #include <string>
 
 using al::Compiler;
@@ -299,15 +300,47 @@ static int lua_pointer(lua_State * L) {
 	return 1;
 }
 
+/*
+	DynamicLibrary:
+*/
+#pragma mark DynamicLibrary
+int LoadLibraryPermanently(lua_State * L) {
+	const char * filename = luaL_checkstring(L, 1);
+	std::string ErrMsg;
+	bool res = Compiler::loadLibrary(filename, ErrMsg);
+	lua_pushboolean(L, res);
+	lua_pushstring(L, ErrMsg.c_str());
+	return 2;
+}
+
+int SearchForAddressOfSymbol(lua_State * L) {
+	const char * symbolName = luaL_checkstring(L, 1);
+	lua_pushlightuserdata(L, Compiler::findSymbol(symbolName));
+	return 1;
+} 
+
+int AddSymbol(lua_State * L) {
+	const char * symbolName = luaL_checkstring(L, 1);
+	void * symbolValue = lua_touserdata(L, 2);
+	Compiler::addSymbol(symbolName, symbolValue);
+	return 0;
+}
 
 extern "C" int luaopen_clang(lua_State *L) {
 	const char * libname = lua_tostring(L, 1);
 	
 	struct luaL_reg lib[] = {
+		{ "LoadLibraryPermanently", LoadLibraryPermanently },
+		{ "SearchForAddressOfSymbol", SearchForAddressOfSymbol },
+		{ "AddSymbol", AddSymbol },
 		{ "sweep", lua_sweep },
 		{ NULL, NULL }
 	};
 	luaL_register(L, libname, lib);
+	
+	printf("%s \n", Compiler::hostTriple());
+	lua_pushstring(L, Compiler::hostTriple()); 
+	lua_setfield(L, -2, "hosttriple");
 	
 	lua_pushlightuserdata(L, L);
 	lua_pushcclosure(L, lua_pointer, 1);
