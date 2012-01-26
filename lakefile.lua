@@ -1,18 +1,18 @@
 -- Lake file for luaclang
 
-local needs = { "clang", "llvm" }
+local needs = { "clang", "llvm", "lua" }
 
 if PLAT == "Darwin" then
 
 	LLVM_DIR = 'osx/llvm-3.0'
-	LLVM_LIBS = "LLVMJIT LLVMTarget LLVMScalarOpts LLVMSupport LLVMLinker LLVMCore LLVMMC LLVMAnalysis LLVMipa LLVMipo LLVMTransformUtils LLVMInstCombine LLVMExecutionEngine LLVMCodeGen LLVMX86CodeGen LLVMX86Utils LLVMX86AsmPrinter LLVMSelectionDAG LLVMX86Desc LLVMX86Info LLVMX86Disassembler LLVMX86AsmParser LLVMMCParser LLVMAsmPrinter"
+	LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
 
 	CLANG_DIR = 'osx/llvm-3.0'
 	CLANG_LIBS = "clangFrontend clangLex clangParse clangDriver clangCodeGen clangSema clangSerialization clangAnalysis clangAST clangBasic"
 
 elseif PLAT == "Linux" then
 	LLVM_DIR = 'linux/llvm-3.0'
-	LLVM_LIBS = "LLVMXCoreCodeGen LLVMTableGen LLVMSystemZCodeGen LLVMSparcCodeGen LLVMPTXCodeGen LLVMPowerPCCodeGen LLVMMSP430CodeGen LLVMMipsCodeGen LLVMMCJIT LLVMRuntimeDyld LLVMObject LLVMMCDisassembler LLVMXCoreDesc LLVMXCoreInfo LLVMSystemZDesc LLVMSystemZInfo LLVMSparcDesc LLVMSparcInfo LLVMPowerPCDesc LLVMPowerPCInfo LLVMPowerPCAsmPrinter LLVMPTXDesc LLVMPTXInfo LLVMPTXAsmPrinter LLVMMipsDesc LLVMMipsInfo LLVMMipsAsmPrinter LLVMMSP430Desc LLVMMSP430Info LLVMMSP430AsmPrinter LLVMMBlazeDisassembler LLVMMBlazeAsmParser LLVMMBlazeCodeGen LLVMMBlazeDesc LLVMMBlazeAsmPrinter LLVMMBlazeInfo LLVMLinker LLVMipo LLVMInterpreter LLVMInstrumentation LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMCppBackend LLVMCppBackendInfo LLVMCellSPUCodeGen LLVMCellSPUDesc LLVMCellSPUInfo LLVMCBackend LLVMCBackendInfo LLVMBlackfinCodeGen LLVMBlackfinDesc LLVMBlackfinInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMAsmParser LLVMARMDisassembler LLVMARMAsmParser LLVMARMCodeGen LLVMARMDesc LLVMARMAsmPrinter LLVMARMInfo LLVMArchive LLVMBitReader LLVMAlphaCodeGen LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMAlphaDesc LLVMAlphaInfo LLVMMC LLVMSupport"
+	LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
 
 	CLANG_DIR = 'linux/llvm-3.0'
 	CLANG_LIBS = "clangFrontend clangLex clangParse clangDriver clangCodeGen clangSema clangSerialization clangAnalysis clangAST clangBasic"
