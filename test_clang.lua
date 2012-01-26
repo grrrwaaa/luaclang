@@ -24,6 +24,7 @@ local cc = clang.Compiler()
 
 --local app = (require"app")
 cc:include(path .. "headers")
+cc:include("/usr/include")
 
 cc:define("SCALAR=7")
 

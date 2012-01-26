@@ -2,27 +2,27 @@
 
 local needs = { "clang", "llvm", "lua" }
 
+LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
+
+CLANG_LIBS = "clangFrontend clangLex clangParse clangDriver clangCodeGen clangSema clangSerialization clangAnalysis clangAST clangBasic"
+
 if PLAT == "Darwin" then
 
 	LLVM_DIR = 'osx/llvm-3.0'
-	LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
-
 	CLANG_DIR = 'osx/llvm-3.0'
-	CLANG_LIBS = "clangFrontend clangLex clangParse clangDriver clangCodeGen clangSema clangSerialization clangAnalysis clangAST clangBasic"
 
 elseif PLAT == "Linux" then
-	LLVM_DIR = 'linux/llvm-3.0'
-	LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
 
+	-- currently assumes 64-bit...
+	LLVM_DIR = 'linux/llvm-3.0'
 	CLANG_DIR = 'linux/llvm-3.0'
-	CLANG_LIBS = "clangFrontend clangLex clangParse clangDriver clangCodeGen clangSema clangSerialization clangAnalysis clangAST clangBasic"
 
 	needs[#needs+1] = "pthread"
 	PTHREAD_DIR = '/usr/'
 	PTHREAD_LIBS = 'pthread'
 
 else
-	print (PLAT, "not supported")
+	error (PLAT .. " not supported")
 end
 
 cpp.shared{ 
