@@ -1,3 +1,5 @@
+
+
 -- Lake file for luaclang
 
 local needs = { "clang", "llvm", "lua" }
@@ -12,10 +14,15 @@ if PLAT == "Darwin" then
 	CLANG_DIR = 'osx/llvm-3.0'
 
 elseif PLAT == "Linux" then
-
+	local arch = "32"
+	if utils.shell("uname -m") == "x86_64" then
+		arch = "64"
+	end
 	-- currently assumes 64-bit...
 	LLVM_DIR = 'linux/llvm-3.0'
 	CLANG_DIR = 'linux/llvm-3.0'
+	LLVM_LIB_DIR = LLVM_DIR .. "/lib" .. arch
+	CLANG_LIB_DIR = CLANG_DIR .. "/lib" .. arch
 
 	needs[#needs+1] = "pthread"
 	PTHREAD_DIR = '/usr/'
