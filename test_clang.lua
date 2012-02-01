@@ -32,6 +32,8 @@ cc:include(path .. "headers")
 if not clang.hosttriple:find("apple") then
 	-- problematic on OSX
 	cc:include("/usr/include")
+	cc:include("/usr/include/i386-linux-gnu")
+	cc:include("/usr/include/x86_64-linux-gnu")
 end
 
 cc:define("SCALAR=7")
