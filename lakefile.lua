@@ -1,7 +1,4 @@
-
-
 -- Lake file for luaclang
-
 local needs = { "clang", "llvm", "lua" }
 
 LLVM_LIBS = "LLVMRuntimeDyld LLVMObject LLVMLinker LLVMipo LLVMJIT LLVMExecutionEngine LLVMDebugInfo LLVMBitWriter LLVMX86Disassembler LLVMX86AsmParser LLVMX86CodeGen LLVMX86Desc LLVMX86AsmPrinter LLVMX86Utils LLVMX86Info LLVMArchive LLVMBitReader LLVMSelectionDAG LLVMAsmPrinter LLVMMCParser LLVMCodeGen LLVMScalarOpts LLVMInstCombine LLVMTransformUtils LLVMipa LLVMAnalysis LLVMTarget LLVMCore LLVMMC LLVMSupport"
@@ -54,3 +51,5 @@ cpp.shared{
 	-- put results in debug / release folders 
 	--odir = true,	
 }
+
+target('install', 'clang', 'sudo cp $(DEPENDS) /usr/local/lib/lua/5.1/$(DEPENDS)')
