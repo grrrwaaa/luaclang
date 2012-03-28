@@ -1,2 +1,5 @@
 *.d
 *.spec
+*.o
+*.so
+build
