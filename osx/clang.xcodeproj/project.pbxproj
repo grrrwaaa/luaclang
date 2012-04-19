@@ -57,7 +57,6 @@
 		36886D6414C76B0700AB4605 /* libclangCodeGen.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 364009F6109156FD00C4D35B /* libclangCodeGen.a */; };
 		36886D6514C76B0A00AB4605 /* libclangDriver.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 364009F7109156FD00C4D35B /* libclangDriver.a */; };
 		36886D6614C76B0E00AB4605 /* libclangParse.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 364009FB109156FD00C4D35B /* libclangParse.a */; };
-		36886D7714C76C0A00AB4605 /* test in CopyFiles */ = {isa = PBXBuildFile; fileRef = 36886D6D14C76BF100AB4605 /* test */; };
 		36886D9A14C76C5900AB4605 /* headers in CopyFiles */ = {isa = PBXBuildFile; fileRef = 36886D7914C76C5500AB4605 /* headers */; };
 /* End PBXBuildFile section */
 
@@ -69,7 +68,6 @@
 			dstSubfolderSpec = 16;
 			files = (
 				36886D9A14C76C5900AB4605 /* headers in CopyFiles */,
-				36886D7714C76C0A00AB4605 /* test in CopyFiles */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -997,9 +995,9 @@
 		36886D4714C76A2B00AB4605 /* libprofile_rt.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libprofile_rt.a; sourceTree = "<group>"; };
 		36886D4814C76A2B00AB4605 /* libprofile_rt.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libprofile_rt.dylib; sourceTree = "<group>"; };
 		36886D4914C76A2B00AB4605 /* LLVMHello.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = LLVMHello.dylib; sourceTree = "<group>"; };
-		36886D6D14C76BF100AB4605 /* test */ = {isa = PBXFileReference; lastKnownFileType = folder; name = test; path = ../test; sourceTree = SOURCE_ROOT; };
 		36886D7914C76C5500AB4605 /* headers */ = {isa = PBXFileReference; lastKnownFileType = folder; name = headers; path = ../headers; sourceTree = SOURCE_ROOT; };
 		368D381E10EE717100B6279F /* clang */ = {isa = PBXFileReference; lastKnownFileType = folder; path = clang; sourceTree = "<group>"; };
+		36A763AA1540A7890027BBB3 /* lakefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = lakefile; path = ../lakefile; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1058,9 +1056,9 @@
 		0867D691FE84028FC02AAC07 /* osx */ = {
 			isa = PBXGroup;
 			children = (
+				36A763AA1540A7890027BBB3 /* lakefile */,
 				3681F93714D0EB43007C8BF3 /* include */,
 				36886D7914C76C5500AB4605 /* headers */,
-				36886D6D14C76BF100AB4605 /* test */,
 				364002DD1091556800C4D35B /* src */,
 				364002DC1091556800C4D35B /* lib */,
 				0867D69AFE84028FC02AAC07 /* External Frameworks and Libraries */,
@@ -2440,7 +2438,14 @@
 			isa = PBXProject;
 			buildConfigurationList = 1DEB918108733D990010E9CD /* Build configuration list for PBXProject "clang" */;
 			compatibilityVersion = "Xcode 3.1";
+			developmentRegion = English;
 			hasScannedForEncodings = 1;
+			knownRegions = (
+				English,
+				Japanese,
+				French,
+				German,
+			);
 			mainGroup = 0867D691FE84028FC02AAC07 /* osx */;
 			productRefGroup = 034768DFFF38A50411DB9C8B /* Products */;
 			projectDirPath = "";
@@ -2498,7 +2503,6 @@
 					dynamic_lookup,
 				);
 				PREBINDING = NO;
-				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/llvm-3.0/include\"";
 				VALID_ARCHS = "i386 x86_64";
 			};
 			name = Debug;
@@ -2519,7 +2523,6 @@
 					dynamic_lookup,
 				);
 				PREBINDING = NO;
-				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/llvm-3.0/include\"";
 				VALID_ARCHS = "i386 x86_64";
 			};
 			name = Release;
@@ -2548,6 +2551,7 @@
 		36886CB014C7675C00AB4605 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
 				EXECUTABLE_EXTENSION = so;
 				EXECUTABLE_PREFIX = "";
 				GCC_DYNAMIC_NO_PIC = NO;
@@ -2557,16 +2561,25 @@
 				INSTALL_PATH = /usr/local/lib;
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"\"$(SRCROOT)/../llvm-3.0/osx\"",
+					"\"$(SRCROOT)/llvm-3.0/lib\"",
+				);
+				OTHER_CFLAGS = (
+					"-DNDEBUG",
+					"-D_GNU_SOURCE",
+					"-D__STDC_LIMIT_MACROS",
+					"-D__STDC_CONSTANT_MACROS",
+					"-D__STDC_FORMAT_MACROS",
 				);
 				PREBINDING = NO;
 				PRODUCT_NAME = clang;
+				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/llvm-3.0/include\"";
 			};
 			name = Debug;
 		};
 		36886CB114C7675C00AB4605 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				EXECUTABLE_EXTENSION = so;
 				EXECUTABLE_PREFIX = "";
@@ -2575,10 +2588,18 @@
 				INSTALL_PATH = /usr/local/lib;
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
-					"\"$(SRCROOT)/../llvm-3.0/osx\"",
+					"\"$(SRCROOT)/llvm-3.0/lib\"",
+				);
+				OTHER_CFLAGS = (
+					"-DNDEBUG",
+					"-D_GNU_SOURCE",
+					"-D__STDC_LIMIT_MACROS",
+					"-D__STDC_CONSTANT_MACROS",
+					"-D__STDC_FORMAT_MACROS",
 				);
 				PREBINDING = NO;
 				PRODUCT_NAME = clang;
+				USER_HEADER_SEARCH_PATHS = "\"$(SRCROOT)/llvm-3.0/include\"";
 				ZERO_LINK = NO;
 			};
 			name = Release;

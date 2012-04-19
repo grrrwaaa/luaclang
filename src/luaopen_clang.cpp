@@ -142,7 +142,7 @@ int lua_compiler_dump(lua_State *L) {
 
 int lua_compiler_optimize(lua_State *L) {
 	Compiler *s = Glue<Compiler>::checkto(L, 1);
-	const char *olevel = lua::opt<const char *>(L, 2, "02");
+	const char *olevel = lua::opt<const char *>(L, 2, "O2");
 	s->optimize(string(olevel));
 	return 0;
 }

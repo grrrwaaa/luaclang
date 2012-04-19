@@ -40,6 +40,10 @@ cc:define("SCALAR=7")
 
 assert(cc:compile([=[
 
+
+
+
+
 extern "C" {
 	#include "lua.h"
 	#include "lauxlib.h"
