@@ -3,3 +3,6 @@
 *.o
 *.so
 build
+*.DS_Store
+*.pbxuser
+*.perspectivev3
