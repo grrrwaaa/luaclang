@@ -899,6 +899,10 @@ void core() {
 	/** See llvm::createBasicAliasAnalysisPass function */
 	LLVMAddBasicAliasAnalysisPass(PM);
 	
+	//LLVMAddDeadTypeEliminationPass(PM);
+	
+	
+	
 }
 
 
