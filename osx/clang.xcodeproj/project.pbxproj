@@ -1009,6 +1009,9 @@
 		36886D7914C76C5500AB4605 /* headers */ = {isa = PBXFileReference; lastKnownFileType = folder; name = headers; path = ../headers; sourceTree = SOURCE_ROOT; };
 		368D381E10EE717100B6279F /* clang */ = {isa = PBXFileReference; lastKnownFileType = folder; path = clang; sourceTree = "<group>"; };
 		36A763AA1540A7890027BBB3 /* lakefile */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text; name = lakefile; path = ../lakefile; sourceTree = SOURCE_ROOT; };
+		36F21F9F155F6F930001F012 /* llvm_export.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = llvm_export.cpp; sourceTree = "<group>"; };
+		36F2202E155F84E90001F012 /* stub.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = stub.c; sourceTree = "<group>"; };
+		36F2202F155F85DF0001F012 /* stub.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = stub.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1208,6 +1211,9 @@
 				360A6B89115FF3170055970B /* luaopen_clang_llvm.cpp */,
 				36283D3A10B0F38E0082B68D /* clang.luadoc */,
 				360A6B8D115FF4B00055970B /* clang.llvm.luadoc */,
+				36F21F9F155F6F930001F012 /* llvm_export.cpp */,
+				36F2202F155F85DF0001F012 /* stub.h */,
+				36F2202E155F84E90001F012 /* stub.c */,
 			);
 			name = src;
 			path = ../src;

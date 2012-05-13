@@ -35,6 +35,7 @@ cpp.shared{
 	src = {
 		'src/Compiler.cpp',
 		'src/luaopen_clang.cpp', 
+		'src/llvm_export.cpp'
 	},
 	-- LLVM needs these defines / flags:
 	defines = {
@@ -44,7 +45,7 @@ cpp.shared{
 		"__STDC_CONSTANT_MACROS",
 		"__STDC_FORMAT_MACROS",
 	},
-	flags = "-fno-rtti -fomit-frame-pointer -fno-exceptions -O3",
+	flags = "-fno-rtti -fomit-frame-pointer -fno-exceptions -O3 -export-dynamic",
 	--flags = "-fno-rtti -fomit-frame-pointer -fno-exceptions -fPIC -O3 -Woverloaded-virtual -Wcast-qual",
 	-- library dependencies:
 	needs = needs,

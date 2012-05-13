@@ -1,35 +1,59 @@
 /*
-	Dummy function used to ensure that the library exports symbols
+	Dummy function used to ensure that the library exports llvm-c symbols.
  */
- 
+
+#include "llvm-c/Analysis.h"
+#include "llvm-c/BitReader.h"
+#include "llvm-c/BitWriter.h"
 #include "llvm-c/Core.h"
+#include "llvm-c/ExecutionEngine.h"
+#include "llvm-c/Initialization.h"
+#include "llvm-c/Transforms/IPO.h"
+#include "llvm-c/Transforms/PassManagerBuilder.h"
+#include "llvm-c/Transforms/Scalar.h"
 
-void dummy() {
-	unsigned u;
-	unsigned long long ull;
-	LLVMTypeRef Ty;
-	LLVMTypeKind typekind;
-	LLVMBool b;
-	char * str;
-	LLVMValueRef Val;
-	LLVMContextRef C;
-	LLVMModuleRef M;
-	LLVMModuleProviderRef MP;
-	LLVMUseRef U;
-	LLVMBuilderRef B, Builder;
-	LLVMBasicBlockRef BB;
-	LLVMPassRegistryRef R;
-	LLVMAttribute PA;
-	LLVMIntPredicate Predicate;
-	LLVMRealPredicate RealPredicate;
-	LLVMLinkage Linkage;
-	LLVMVisibility Viz;
-	LLVMPassManagerRef PM;
-	LLVMMemoryBufferRef MemBuf;
+void core() {
+	unsigned u = 0;
+	unsigned long long ull = 0;
+	LLVMTypeRef Ty = 0;
+	LLVMTypeKind typekind = LLVMVoidTypeKind;
+	LLVMBool b = 0;
+	char * str = 0;
+	LLVMValueRef Val = 0;
+	LLVMContextRef C = 0;
+	LLVMModuleRef M = 0;
+	LLVMModuleProviderRef MP = 0;
+	LLVMUseRef U = 0;
+	LLVMBuilderRef B = 0, Builder = 0;
+	LLVMBasicBlockRef BB = 0;
+	LLVMPassRegistryRef R = 0;
+	LLVMAttribute PA = LLVMZExtAttribute;
+	LLVMIntPredicate Predicate = LLVMIntEQ;
+	LLVMRealPredicate RealPredicate = LLVMRealPredicateFalse;
+	LLVMLinkage Linkage = LLVMExternalLinkage;
+	LLVMVisibility Viz = LLVMDefaultVisibility;
+	LLVMPassManagerRef PM = 0;
+	LLVMPassManagerBuilderRef PMB = 0;
+	LLVMMemoryBufferRef MemBuf = 0;
 	LLVMOpcode Op;
+	LLVMExecutionEngineRef EE = 0;
+	LLVMGenericValueRef GV = 0;
+	void * ptr = 0;
+	LLVMTargetDataRef TDR = 0;
+	LLVMVerifierFailureAction Action = LLVMPrintMessageAction;
 	
-
+	
 	LLVMInitializeCore(R);
+	LLVMInitializeTransformUtils(R);
+	LLVMInitializeScalarOpts(R);
+	LLVMInitializeInstCombine(R);
+	LLVMInitializeIPO(R);
+	//LLVMInitializeInstrumentation(R);
+	LLVMInitializeAnalysis(R);
+	LLVMInitializeIPA(R);
+	LLVMInitializeCodeGen(R);
+	LLVMInitializeTarget(R);
+	
 	LLVMDisposeMessage(str);
 
 	LLVMContextRef LLVMContextCreate();
@@ -630,6 +654,252 @@ void dummy() {
 	b = LLVMFinalizeFunctionPassManager(PM);
 
 	LLVMDisposePassManager(PM);
+	
+	// analysis
+	b = LLVMVerifyModule(M, Action, &str);
+	b = LLVMVerifyFunction(Val, Action);
+	LLVMViewFunctionCFG(Val);
+	LLVMViewFunctionCFGOnly(Val);
+	
+	// bitreader
+	b = LLVMParseBitcode(MemBuf, &M, &str);
+	b = LLVMParseBitcodeInContext(C, MemBuf, &M, &str);
+	b = LLVMGetBitcodeModuleInContext(C, MemBuf, &M, &str);
+	b = LLVMGetBitcodeModule(MemBuf, &M, &str);
+	b = LLVMGetBitcodeModuleProviderInContext(C, MemBuf, &MP, &str);
+	b = LLVMGetBitcodeModuleProvider(MemBuf, &MP, &str);
+	
+	// bitwriter
+	u = LLVMWriteBitcodeToFile(M, str1);
+	u = LLVMWriteBitcodeToFD(M, u, u, u);
+	u = LLVMWriteBitcodeToFileHandle(M, u);
+	
+	// ee
+	LLVMLinkInJIT();
+	//LLVMLinkInInterpreter();
+
+	LLVMCreateGenericValueOfInt(Ty, ull, b);
+	GV = LLVMCreateGenericValueOfPointer(ptr);
+	GV = LLVMCreateGenericValueOfFloat(Ty, u);
+	u = LLVMGenericValueIntWidth(GV);
+	ull = LLVMGenericValueToInt(GV, b);
+	ptr = LLVMGenericValueToPointer(GV);
+	u = LLVMGenericValueToFloat(Ty, GV);
+	LLVMDisposeGenericValue(GV);
+
+	b = LLVMCreateExecutionEngineForModule(&EE, M, &str);
+	b = LLVMCreateInterpreterForModule(&EE, M, &str);
+	b = LLVMCreateJITCompilerForModule(&EE, M, u, &str);
+
+	LLVMDisposeExecutionEngine(EE);
+	LLVMRunStaticConstructors(EE);
+	LLVMRunStaticDestructors(EE);
+	
+	u = LLVMRunFunctionAsMain(EE, Val, u, &str2, &str3);
+
+	GV = LLVMRunFunction(EE, Val, u, &GV);
+
+	LLVMFreeMachineCodeForFunction(EE, Val);
+	LLVMAddModule(EE, M);
+	b = LLVMRemoveModule(EE, M, &M, &str);
+	b = LLVMFindFunction(EE, str4, &Val);
+	ptr = LLVMRecompileAndRelinkFunction(EE, Val);
+
+	TDR = LLVMGetExecutionEngineTargetData(EE);
+
+	LLVMAddGlobalMapping(EE, Val, ptr);
+
+	ptr = LLVMGetPointerToGlobal(EE, Val);
+	
+	// target
+	LLVMInitializeX86TargetInfo(); 
+	LLVMInitializeX86TargetInfo();
+	LLVMInitializeX86Target(); 
+	LLVMInitializeX86Target();
+
+
+	TDR = LLVMCreateTargetData(str8);
+	LLVMAddTargetData(TDR, PM);
+	str1 = LLVMCopyStringRepOfTargetData(TDR);
+	LLVMByteOrder(TDR);
+	u = LLVMPointerSize(TDR);
+	Ty = LLVMIntPtrType(TDR);
+	ull = LLVMSizeOfTypeInBits(TDR, Ty);
+	ull = LLVMStoreSizeOfType(TDR, Ty);
+	ull = LLVMABISizeOfType(TDR, Ty);
+	u = LLVMABIAlignmentOfType(TDR, Ty);
+	u = LLVMCallFrameAlignmentOfType(TDR, Ty);
+	u =  LLVMPreferredAlignmentOfType(TDR, Ty);
+	u =  LLVMPreferredAlignmentOfGlobal(TDR, Val);	
+	u = LLVMElementAtOffset(TDR, Ty, ull);
+	ull = LLVMOffsetOfElement(TDR, Ty, u);
+
+	//? LLVMInvalidateStructLayout(TDR, Ty);
+	LLVMDisposeTargetData(TDR);
+	
+	// transforms
+	/** See llvm::PassManagerBuilder. */
+	PMB = LLVMPassManagerBuilderCreate();
+	LLVMPassManagerBuilderDispose(PMB);
+
+	/** See llvm::PassManagerBuilder::OptLevel. */
+	LLVMPassManagerBuilderSetOptLevel(PMB, u);
+
+	/** See llvm::PassManagerBuilder::SizeLevel. */
+	LLVMPassManagerBuilderSetSizeLevel(PMB, u);
+
+	/** See llvm::PassManagerBuilder::DisableUnitAtATime. */
+	LLVMPassManagerBuilderSetDisableUnitAtATime(PMB, b);
+
+	/** See llvm::PassManagerBuilder::DisableUnrollLoops. */
+	LLVMPassManagerBuilderSetDisableUnrollLoops(PMB, b);
+
+	/** See llvm::PassManagerBuilder::DisableSimplifyLibCalls */
+	LLVMPassManagerBuilderSetDisableSimplifyLibCalls(PMB, b);
+
+	/** See llvm::PassManagerBuilder::Inliner. */
+	LLVMPassManagerBuilderUseInlinerWithThreshold(PMB, u);
+
+	/** See llvm::PassManagerBuilder::populateFunctionPassManager. */
+	LLVMPassManagerBuilderPopulateFunctionPassManager(PMB, PM);
+
+	/** See llvm::PassManagerBuilder::populateModulePassManager. */
+	LLVMPassManagerBuilderPopulateModulePassManager(PMB, PM);
+
+	/** See llvm::PassManagerBuilder::populateLTOPassManager. */
+	LLVMPassManagerBuilderPopulateLTOPassManager(PMB, PM, b, b);
+		/** See llvm::createArgumentPromotionPass function. */
+	LLVMAddArgumentPromotionPass(PM);
+
+	/** See llvm::createConstantMergePass function. */
+	LLVMAddConstantMergePass(PM);
+
+	/** See llvm::createDeadArgEliminationPass function. */
+	LLVMAddDeadArgEliminationPass(PM);
+
+	/** See llvm::createFunctionAttrsPass function. */
+	LLVMAddFunctionAttrsPass(PM);
+
+	/** See llvm::createFunctionInliningPass function. */
+	LLVMAddFunctionInliningPass(PM);
+
+	/** See llvm::createAlwaysInlinerPass function. */
+	LLVMAddAlwaysInlinerPass(PM);
+
+	/** See llvm::createGlobalDCEPass function. */
+	LLVMAddGlobalDCEPass(PM);
+
+	/** See llvm::createGlobalOptimizerPass function. */
+	LLVMAddGlobalOptimizerPass(PM);
+
+	/** See llvm::createIPConstantPropagationPass function. */
+	LLVMAddIPConstantPropagationPass(PM);
+
+	/** See llvm::createPruneEHPass function. */
+	LLVMAddPruneEHPass(PM);
+
+	/** See llvm::createIPSCCPPass function. */
+	LLVMAddIPSCCPPass(PM);
+
+	/** See llvm::createInternalizePass function. */
+	LLVMAddInternalizePass(PM, u);
+
+	/** See llvm::createStripDeadPrototypesPass function. */
+	LLVMAddStripDeadPrototypesPass(PM);
+
+	/** See llvm::createStripSymbolsPass function. */
+	LLVMAddStripSymbolsPass(PM);
+
+	/** See llvm::createAggressiveDCEPass function. */
+	LLVMAddAggressiveDCEPass(PM);
+
+	/** See llvm::createCFGSimplificationPass function. */
+	LLVMAddCFGSimplificationPass(PM);
+
+	/** See llvm::createDeadStoreEliminationPass function. */
+	LLVMAddDeadStoreEliminationPass(PM);
+
+	/** See llvm::createGVNPass function. */
+	LLVMAddGVNPass(PM);
+
+	/** See llvm::createIndVarSimplifyPass function. */
+	LLVMAddIndVarSimplifyPass(PM);
+
+	/** See llvm::createInstructionCombiningPass function. */
+	LLVMAddInstructionCombiningPass(PM);
+
+	/** See llvm::createJumpThreadingPass function. */
+	LLVMAddJumpThreadingPass(PM);
+
+	/** See llvm::createLICMPass function. */
+	LLVMAddLICMPass(PM);
+
+	/** See llvm::createLoopDeletionPass function. */
+	LLVMAddLoopDeletionPass(PM);
+
+	/** See llvm::createLoopIdiomPass function */
+	LLVMAddLoopIdiomPass(PM);
+
+	/** See llvm::createLoopRotatePass function. */
+	LLVMAddLoopRotatePass(PM);
+
+	/** See llvm::createLoopUnrollPass function. */
+	LLVMAddLoopUnrollPass(PM);
+
+	/** See llvm::createLoopUnswitchPass function. */
+	LLVMAddLoopUnswitchPass(PM);
+
+	/** See llvm::createMemCpyOptPass function. */
+	LLVMAddMemCpyOptPass(PM);
+
+	/** See llvm::createPromoteMemoryToRegisterPass function. */
+	LLVMAddPromoteMemoryToRegisterPass(PM);
+
+	/** See llvm::createReassociatePass function. */
+	LLVMAddReassociatePass(PM);
+
+	/** See llvm::createSCCPPass function. */
+	LLVMAddSCCPPass(PM);
+
+	/** See llvm::createScalarReplAggregatesPass function. */
+	LLVMAddScalarReplAggregatesPass(PM);
+
+	/** See llvm::createScalarReplAggregatesPass function. */
+	LLVMAddScalarReplAggregatesPassSSA(PM);
+
+	/** See llvm::createScalarReplAggregatesPass function. */
+	LLVMAddScalarReplAggregatesPassWithThreshold(PM, u);
+
+	/** See llvm::createSimplifyLibCallsPass function. */
+	LLVMAddSimplifyLibCallsPass(PM);
+
+	/** See llvm::createTailCallEliminationPass function. */
+	LLVMAddTailCallEliminationPass(PM);
+
+	/** See llvm::createConstantPropagationPass function. */
+	LLVMAddConstantPropagationPass(PM);
+
+	/** See llvm::demotePromoteMemoryToRegisterPass function. */
+	LLVMAddDemoteMemoryToRegisterPass(PM);
+
+	/** See llvm::createVerifierPass function. */
+	LLVMAddVerifierPass(PM);
+
+	/** See llvm::createCorrelatedValuePropagationPass function */
+	LLVMAddCorrelatedValuePropagationPass(PM);
+
+	/** See llvm::createEarlyCSEPass function */
+	LLVMAddEarlyCSEPass(PM);
+
+	/** See llvm::createLowerExpectIntrinsicPass function */
+	LLVMAddLowerExpectIntrinsicPass(PM);
+
+	/** See llvm::createTypeBasedAliasAnalysisPass function */
+	LLVMAddTypeBasedAliasAnalysisPass(PM);
+
+	/** See llvm::createBasicAliasAnalysisPass function */
+	LLVMAddBasicAliasAnalysisPass(PM);
+	
 }
 
 
