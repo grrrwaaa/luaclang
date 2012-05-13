@@ -1012,6 +1012,7 @@
 		36F21F9F155F6F930001F012 /* llvm_export.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = llvm_export.cpp; sourceTree = "<group>"; };
 		36F2202E155F84E90001F012 /* stub.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = stub.c; sourceTree = "<group>"; };
 		36F2202F155F85DF0001F012 /* stub.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = stub.h; sourceTree = "<group>"; };
+		36F220A0155F976A0001F012 /* simple.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = simple.cpp; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1214,6 +1215,7 @@
 				36F21F9F155F6F930001F012 /* llvm_export.cpp */,
 				36F2202F155F85DF0001F012 /* stub.h */,
 				36F2202E155F84E90001F012 /* stub.c */,
+				36F220A0155F976A0001F012 /* simple.cpp */,
 			);
 			name = src;
 			path = ../src;

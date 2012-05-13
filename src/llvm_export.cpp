@@ -712,10 +712,9 @@ void core() {
 	ptr = LLVMGetPointerToGlobal(EE, Val);
 	
 	// target
-	LLVMInitializeX86TargetInfo(); 
 	LLVMInitializeX86TargetInfo();
-	LLVMInitializeX86Target(); 
-	LLVMInitializeX86Target();
+    LLVMInitializeX86Target();
+    LLVMInitializeX86TargetMC();
 
 
 	TDR = LLVMCreateTargetData(str8);

@@ -29,6 +29,30 @@ else
 	error (PLAT .. " not supported")
 end
 
+cpp.program{ 
+	'simple', 
+	-- source files:
+	src = {
+		'src/simple.cpp'
+	},
+	-- LLVM needs these defines / flags:
+	defines = {
+		"NDEBUG",
+		"_GNU_SOURCE",
+		"__STDC_LIMIT_MACROS", 
+		"__STDC_CONSTANT_MACROS",
+		"__STDC_FORMAT_MACROS",
+	},
+	flags = "-fno-rtti -fomit-frame-pointer -fno-exceptions -O3 -export-dynamic",
+	--flags = "-fno-rtti -fomit-frame-pointer -fno-exceptions -fPIC -O3 -Woverloaded-virtual -Wcast-qual",
+	-- library dependencies:
+	needs = needs,
+	-- put results in debug / release folders 
+	--odir = true,	
+}
+
+---[[
+
 cpp.shared{ 
 	'clang', 
 	-- source files:
@@ -54,3 +78,4 @@ cpp.shared{
 }
 
 target('install', 'clang', 'sudo cp $(DEPENDS) /usr/local/lib/lua/5.1/$(DEPENDS)')
+--]]

@@ -15,7 +15,10 @@ typedef struct LLVMOpaqueBasicBlock *LLVMBasicBlockRef;
 typedef struct LLVMOpaqueBuilder *LLVMBuilderRef;
 
 typedef struct LLVMOpaqueModuleProvider *LLVMModuleProviderRef;
-typedef struct LLVMOpaqueMemoryBuffer *LLVMMemoryBufferRef;typedef struct LLVMOpaquePassManager *LLVMPassManagerRef;typedef struct LLVMOpaquePassRegistry *LLVMPassRegistryRef;typedef struct LLVMOpaqueUse *LLVMUseRef;
+typedef struct LLVMOpaqueMemoryBuffer *LLVMMemoryBufferRef;
+typedef struct LLVMOpaquePassManager *LLVMPassManagerRef;
+typedef struct LLVMOpaquePassRegistry *LLVMPassRegistryRef;
+typedef struct LLVMOpaqueUse *LLVMUseRef;
 
 typedef enum {
     LLVMZExtAttribute = 1<<0,
@@ -193,12 +196,15 @@ unsigned LLVMGetMDKindID(const char* Name, unsigned SLen);
 
 LLVMModuleRef LLVMModuleCreateWithName(const char *ModuleID);
 LLVMModuleRef LLVMModuleCreateWithNameInContext(const char *ModuleID,
-                                                LLVMContextRef C);void LLVMDisposeModule(LLVMModuleRef M);const char *LLVMGetDataLayout(LLVMModuleRef M);
+                                                LLVMContextRef C);
+void LLVMDisposeModule(LLVMModuleRef M);const char *LLVMGetDataLayout(LLVMModuleRef M);
 void LLVMSetDataLayout(LLVMModuleRef M, const char *Triple);const char *LLVMGetTarget(LLVMModuleRef M);
 void LLVMSetTarget(LLVMModuleRef M, const char *Triple);LLVMBool LLVMAddTypeName(LLVMModuleRef M, const char *Name, LLVMTypeRef Ty);
 void LLVMDeleteTypeName(LLVMModuleRef M, const char *Name);
 LLVMTypeRef LLVMGetTypeByName(LLVMModuleRef M, const char *Name);
-const char *LLVMGetTypeName(LLVMModuleRef M, LLVMTypeRef Ty);void LLVMDumpModule(LLVMModuleRef M);void LLVMSetModuleInlineAsm(LLVMModuleRef M, const char *Asm);LLVMContextRef LLVMGetModuleContext(LLVMModuleRef M);
+const char *LLVMGetTypeName(LLVMModuleRef M, LLVMTypeRef Ty);
+void LLVMDumpModule(LLVMModuleRef M);
+void LLVMSetModuleInlineAsm(LLVMModuleRef M, const char *Asm);LLVMContextRef LLVMGetModuleContext(LLVMModuleRef M);
 LLVMTypeKind LLVMGetTypeKind(LLVMTypeRef Ty);LLVMContextRef LLVMGetTypeContext(LLVMTypeRef Ty);LLVMTypeRef LLVMInt1TypeInContext(LLVMContextRef C);
 LLVMTypeRef LLVMInt8TypeInContext(LLVMContextRef C);
 LLVMTypeRef LLVMInt16TypeInContext(LLVMContextRef C);
@@ -222,7 +228,8 @@ LLVMTypeRef LLVMFloatType(void);
 LLVMTypeRef LLVMDoubleType(void);
 LLVMTypeRef LLVMX86FP80Type(void);
 LLVMTypeRef LLVMFP128Type(void);
-LLVMTypeRef LLVMPPCFP128Type(void);LLVMTypeRef LLVMFunctionType(LLVMTypeRef ReturnType,
+LLVMTypeRef LLVMPPCFP128Type(void);
+LLVMTypeRef LLVMFunctionType(LLVMTypeRef ReturnType,
                              LLVMTypeRef *ParamTypes, unsigned ParamCount,
                              LLVMBool IsVarArg);
 LLVMBool LLVMIsFunctionVarArg(LLVMTypeRef FunctionTy);
@@ -532,18 +539,21 @@ void LLVMMoveBasicBlockAfter(LLVMBasicBlockRef BB, LLVMBasicBlockRef MovePos);LL
 LLVMValueRef LLVMGetFirstInstruction(LLVMBasicBlockRef BB);
 LLVMValueRef LLVMGetLastInstruction(LLVMBasicBlockRef BB);
 LLVMValueRef LLVMGetNextInstruction(LLVMValueRef Inst);
-LLVMValueRef LLVMGetPreviousInstruction(LLVMValueRef Inst);void LLVMSetInstructionCallConv(LLVMValueRef Instr, unsigned CC);
+LLVMValueRef LLVMGetPreviousInstruction(LLVMValueRef Inst);
+void LLVMSetInstructionCallConv(LLVMValueRef Instr, unsigned CC);
 unsigned LLVMGetInstructionCallConv(LLVMValueRef Instr);
 void LLVMAddInstrAttribute(LLVMValueRef Instr, unsigned index, LLVMAttribute);
 void LLVMRemoveInstrAttribute(LLVMValueRef Instr, unsigned index,
                               LLVMAttribute);
 void LLVMSetInstrParamAlignment(LLVMValueRef Instr, unsigned index,
                                 unsigned align);LLVMBool LLVMIsTailCall(LLVMValueRef CallInst);
-void LLVMSetTailCall(LLVMValueRef CallInst, LLVMBool IsTailCall);void LLVMAddIncoming(LLVMValueRef PhiNode, LLVMValueRef *IncomingValues,
+void LLVMSetTailCall(LLVMValueRef CallInst, LLVMBool IsTailCall);
+void LLVMAddIncoming(LLVMValueRef PhiNode, LLVMValueRef *IncomingValues,
                      LLVMBasicBlockRef *IncomingBlocks, unsigned Count);
 unsigned LLVMCountIncoming(LLVMValueRef PhiNode);
 LLVMValueRef LLVMGetIncomingValue(LLVMValueRef PhiNode, unsigned Index);
-LLVMBasicBlockRef LLVMGetIncomingBlock(LLVMValueRef PhiNode, unsigned Index);LLVMBuilderRef LLVMCreateBuilderInContext(LLVMContextRef C);
+LLVMBasicBlockRef LLVMGetIncomingBlock(LLVMValueRef PhiNode, unsigned Index);
+LLVMBuilderRef LLVMCreateBuilderInContext(LLVMContextRef C);
 LLVMBuilderRef LLVMCreateBuilder(void);
 void LLVMPositionBuilder(LLVMBuilderRef Builder, LLVMBasicBlockRef Block,
                          LLVMValueRef Instr);
@@ -554,7 +564,8 @@ void LLVMClearInsertionPosition(LLVMBuilderRef Builder);
 void LLVMInsertIntoBuilder(LLVMBuilderRef Builder, LLVMValueRef Instr);
 void LLVMInsertIntoBuilderWithName(LLVMBuilderRef Builder, LLVMValueRef Instr,
                                    const char *Name);
-void LLVMDisposeBuilder(LLVMBuilderRef Builder);void LLVMSetCurrentDebugLocation(LLVMBuilderRef Builder, LLVMValueRef L);
+void LLVMDisposeBuilder(LLVMBuilderRef Builder);
+void LLVMSetCurrentDebugLocation(LLVMBuilderRef Builder, LLVMValueRef L);
 LLVMValueRef LLVMGetCurrentDebugLocation(LLVMBuilderRef Builder);
 void LLVMSetInstDebugLocation(LLVMBuilderRef Builder, LLVMValueRef Inst);LLVMValueRef LLVMBuildRetVoid(LLVMBuilderRef);
 LLVMValueRef LLVMBuildRet(LLVMBuilderRef, LLVMValueRef V);
@@ -572,8 +583,10 @@ LLVMValueRef LLVMBuildInvoke(LLVMBuilderRef, LLVMValueRef Fn,
                              LLVMBasicBlockRef Then, LLVMBasicBlockRef Catch,
                              const char *Name);
 LLVMValueRef LLVMBuildUnwind(LLVMBuilderRef);
-LLVMValueRef LLVMBuildUnreachable(LLVMBuilderRef);void LLVMAddCase(LLVMValueRef Switch, LLVMValueRef OnVal,
-                 LLVMBasicBlockRef Dest);void LLVMAddDestination(LLVMValueRef IndirectBr, LLVMBasicBlockRef Dest);LLVMValueRef LLVMBuildAdd(LLVMBuilderRef, LLVMValueRef LHS, LLVMValueRef RHS,
+LLVMValueRef LLVMBuildUnreachable(LLVMBuilderRef);
+void LLVMAddCase(LLVMValueRef Switch, LLVMValueRef OnVal,
+                 LLVMBasicBlockRef Dest);
+void LLVMAddDestination(LLVMValueRef IndirectBr, LLVMBasicBlockRef Dest);LLVMValueRef LLVMBuildAdd(LLVMBuilderRef, LLVMValueRef LHS, LLVMValueRef RHS,
                           const char *Name);
 LLVMValueRef LLVMBuildNSWAdd(LLVMBuilderRef, LLVMValueRef LHS, LLVMValueRef RHS,
                              const char *Name);
@@ -724,7 +737,8 @@ LLVMValueRef LLVMBuildIsNotNull(LLVMBuilderRef, LLVMValueRef Val,
                                 const char *Name);
 LLVMValueRef LLVMBuildPtrDiff(LLVMBuilderRef, LLVMValueRef LHS,
                               LLVMValueRef RHS, const char *Name);LLVMModuleProviderRef
-LLVMCreateModuleProviderForExistingModule(LLVMModuleRef M);void LLVMDisposeModuleProvider(LLVMModuleProviderRef M);
+LLVMCreateModuleProviderForExistingModule(LLVMModuleRef M);
+void LLVMDisposeModuleProvider(LLVMModuleProviderRef M);
 LLVMBool LLVMCreateMemoryBufferWithContentsOfFile(const char *Path,
                                                   LLVMMemoryBufferRef *OutMemBuf,
                                                   char **OutMessage);
@@ -747,7 +761,8 @@ void LLVMDisposePassManager(LLVMPassManagerRef PM);typedef enum {
 } LLVMVerifierFailureAction;
 
 LLVMBool LLVMVerifyModule(LLVMModuleRef M, LLVMVerifierFailureAction Action,
-                          char **OutMessage);LLVMBool LLVMVerifyFunction(LLVMValueRef Fn, LLVMVerifierFailureAction Action);void LLVMViewFunctionCFG(LLVMValueRef Fn);
+                          char **OutMessage);LLVMBool LLVMVerifyFunction(LLVMValueRef Fn, LLVMVerifierFailureAction Action);
+void LLVMViewFunctionCFG(LLVMValueRef Fn);
 void LLVMViewFunctionCFGOnly(LLVMValueRef Fn);
 LLVMBool LLVMParseBitcode(LLVMMemoryBufferRef MemBuf,
                           LLVMModuleRef *OutModule, char **OutMessage);
@@ -774,10 +789,10 @@ enum LLVMByteOrdering { LLVMBigEndian, LLVMLittleEndian };
 
 typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
 typedef struct LLVMStructLayout *LLVMStructLayoutRef;
-void LLVMInitializeX86TargetInfo(void); 
+
 void LLVMInitializeX86TargetInfo(void);
-void LLVMInitializeX86Target(void); 
 void LLVMInitializeX86Target(void);
+void LLVMInitializeX86TargetMC(void);
 
 
 LLVMTargetDataRef LLVMCreateTargetData(const char *StringRep);
@@ -788,7 +803,8 @@ enum LLVMByteOrdering LLVMByteOrder(LLVMTargetDataRef);unsigned LLVMPointerSize(
                              unsigned long long Offset);unsigned long long LLVMOffsetOfElement(LLVMTargetDataRef, LLVMTypeRef StructTy,
                                        unsigned Element);
 
-void LLVMInvalidateStructLayout(LLVMTargetDataRef, LLVMTypeRef StructTy);void LLVMDisposeTargetData(LLVMTargetDataRef);
+void LLVMInvalidateStructLayout(LLVMTargetDataRef, LLVMTypeRef StructTy);
+void LLVMDisposeTargetData(LLVMTargetDataRef);
 
 void LLVMLinkInJIT(void);
 void LLVMLinkInInterpreter(void);
@@ -822,11 +838,15 @@ LLVMBool LLVMCreateInterpreterForModule(LLVMExecutionEngineRef *OutInterp,
 LLVMBool LLVMCreateJITCompilerForModule(LLVMExecutionEngineRef *OutJIT,
                                         LLVMModuleRef M,
                                         unsigned OptLevel,
-                                        char **OutError);LLVMBool LLVMCreateExecutionEngine(LLVMExecutionEngineRef *OutEE,
+                                        char **OutError);
+                                        
+LLVMBool LLVMCreateExecutionEngine(LLVMExecutionEngineRef *OutEE,
                                    LLVMModuleProviderRef MP,
-                                   char **OutError);LLVMBool LLVMCreateInterpreter(LLVMExecutionEngineRef *OutInterp,
+                                   char **OutError);
+LLVMBool LLVMCreateInterpreter(LLVMExecutionEngineRef *OutInterp,
                                LLVMModuleProviderRef MP,
-                               char **OutError);LLVMBool LLVMCreateJITCompiler(LLVMExecutionEngineRef *OutJIT,
+                               char **OutError);
+LLVMBool LLVMCreateJITCompiler(LLVMExecutionEngineRef *OutJIT,
                                LLVMModuleProviderRef MP,
                                unsigned OptLevel,
                                char **OutError);
@@ -847,7 +867,8 @@ LLVMGenericValueRef LLVMRunFunction(LLVMExecutionEngineRef EE, LLVMValueRef F,
 
 void LLVMFreeMachineCodeForFunction(LLVMExecutionEngineRef EE, LLVMValueRef F);
 
-void LLVMAddModule(LLVMExecutionEngineRef EE, LLVMModuleRef M);void LLVMAddModuleProvider(LLVMExecutionEngineRef EE, LLVMModuleProviderRef MP);
+void LLVMAddModule(LLVMExecutionEngineRef EE, LLVMModuleRef M);
+void LLVMAddModuleProvider(LLVMExecutionEngineRef EE, LLVMModuleProviderRef MP);
 
 LLVMBool LLVMRemoveModule(LLVMExecutionEngineRef EE, LLVMModuleRef M,
                           LLVMModuleRef *OutMod, char **OutError);LLVMBool LLVMRemoveModuleProvider(LLVMExecutionEngineRef EE,
@@ -874,20 +895,127 @@ void LLVMInitializeInstrumentation(LLVMPassRegistryRef R);
 void LLVMInitializeAnalysis(LLVMPassRegistryRef R);
 void LLVMInitializeIPA(LLVMPassRegistryRef R);
 void LLVMInitializeCodeGen(LLVMPassRegistryRef R);
-void LLVMInitializeTarget(LLVMPassRegistryRef R);void LLVMAddArgumentPromotionPass(LLVMPassManagerRef PM);void LLVMAddConstantMergePass(LLVMPassManagerRef PM);void LLVMAddDeadArgEliminationPass(LLVMPassManagerRef PM);void LLVMAddDeadTypeEliminationPass(LLVMPassManagerRef PM);void LLVMAddFunctionAttrsPass(LLVMPassManagerRef PM);void LLVMAddFunctionInliningPass(LLVMPassManagerRef PM);void LLVMAddGlobalDCEPass(LLVMPassManagerRef PM);void LLVMAddGlobalOptimizerPass(LLVMPassManagerRef PM);void LLVMAddIPConstantPropagationPass(LLVMPassManagerRef PM);void LLVMAddLowerSetJmpPass(LLVMPassManagerRef PM);void LLVMAddPruneEHPass(LLVMPassManagerRef PM);void LLVMAddIPSCCPPass(LLVMPassManagerRef PM);void LLVMAddInternalizePass(LLVMPassManagerRef, unsigned AllButMain);void LLVMAddRaiseAllocationsPass(LLVMPassManagerRef PM);void LLVMAddStripDeadPrototypesPass(LLVMPassManagerRef PM);void LLVMAddStripSymbolsPass(LLVMPassManagerRef PM);
+void LLVMInitializeTarget(LLVMPassRegistryRef R);
+void LLVMAddArgumentPromotionPass(LLVMPassManagerRef PM);
+void LLVMAddConstantMergePass(LLVMPassManagerRef PM);
+void LLVMAddDeadArgEliminationPass(LLVMPassManagerRef PM);
+void LLVMAddDeadTypeEliminationPass(LLVMPassManagerRef PM);
+void LLVMAddFunctionAttrsPass(LLVMPassManagerRef PM);
+void LLVMAddFunctionInliningPass(LLVMPassManagerRef PM);
+void LLVMAddGlobalDCEPass(LLVMPassManagerRef PM);
+void LLVMAddGlobalOptimizerPass(LLVMPassManagerRef PM);
+void LLVMAddIPConstantPropagationPass(LLVMPassManagerRef PM);
+void LLVMAddLowerSetJmpPass(LLVMPassManagerRef PM);
+void LLVMAddPruneEHPass(LLVMPassManagerRef PM);
+void LLVMAddIPSCCPPass(LLVMPassManagerRef PM);
+void LLVMAddInternalizePass(LLVMPassManagerRef, unsigned AllButMain);
+void LLVMAddRaiseAllocationsPass(LLVMPassManagerRef PM);
+void LLVMAddStripDeadPrototypesPass(LLVMPassManagerRef PM);
+void LLVMAddStripSymbolsPass(LLVMPassManagerRef PM);
 
-void LLVMAddAggressiveDCEPass(LLVMPassManagerRef PM);void LLVMAddCFGSimplificationPass(LLVMPassManagerRef PM);void LLVMAddDeadStoreEliminationPass(LLVMPassManagerRef PM);void LLVMAddGVNPass(LLVMPassManagerRef PM);void LLVMAddIndVarSimplifyPass(LLVMPassManagerRef PM);void LLVMAddInstructionCombiningPass(LLVMPassManagerRef PM);void LLVMAddJumpThreadingPass(LLVMPassManagerRef PM);void LLVMAddLICMPass(LLVMPassManagerRef PM);void LLVMAddLoopDeletionPass(LLVMPassManagerRef PM);void LLVMAddLoopRotatePass(LLVMPassManagerRef PM);void LLVMAddLoopUnrollPass(LLVMPassManagerRef PM);void LLVMAddLoopUnswitchPass(LLVMPassManagerRef PM);void LLVMAddMemCpyOptPass(LLVMPassManagerRef PM);void LLVMAddPromoteMemoryToRegisterPass(LLVMPassManagerRef PM);void LLVMAddReassociatePass(LLVMPassManagerRef PM);void LLVMAddSCCPPass(LLVMPassManagerRef PM);void LLVMAddScalarReplAggregatesPass(LLVMPassManagerRef PM);void LLVMAddScalarReplAggregatesPassWithThreshold(LLVMPassManagerRef PM,
-                                                  int Threshold);void LLVMAddSimplifyLibCallsPass(LLVMPassManagerRef PM);void LLVMAddTailCallEliminationPass(LLVMPassManagerRef PM);void LLVMAddConstantPropagationPass(LLVMPassManagerRef PM);void LLVMAddDemoteMemoryToRegisterPass(LLVMPassManagerRef PM);void LLVMAddVerifierPass(LLVMPassManagerRef PM);
+void LLVMAddAggressiveDCEPass(LLVMPassManagerRef PM);
+void LLVMAddCFGSimplificationPass(LLVMPassManagerRef PM);
+void LLVMAddDeadStoreEliminationPass(LLVMPassManagerRef PM);
+void LLVMAddGVNPass(LLVMPassManagerRef PM);
+void LLVMAddIndVarSimplifyPass(LLVMPassManagerRef PM);
+void LLVMAddInstructionCombiningPass(LLVMPassManagerRef PM);
+void LLVMAddJumpThreadingPass(LLVMPassManagerRef PM);
+void LLVMAddLICMPass(LLVMPassManagerRef PM);
+void LLVMAddLoopDeletionPass(LLVMPassManagerRef PM);
+void LLVMAddLoopRotatePass(LLVMPassManagerRef PM);
+void LLVMAddLoopUnrollPass(LLVMPassManagerRef PM);
+void LLVMAddLoopUnswitchPass(LLVMPassManagerRef PM);
+void LLVMAddMemCpyOptPass(LLVMPassManagerRef PM);
+void LLVMAddPromoteMemoryToRegisterPass(LLVMPassManagerRef PM);
+void LLVMAddReassociatePass(LLVMPassManagerRef PM);
+void LLVMAddSCCPPass(LLVMPassManagerRef PM);
+void LLVMAddScalarReplAggregatesPass(LLVMPassManagerRef PM);
+void LLVMAddScalarReplAggregatesPassWithThreshold(LLVMPassManagerRef PM,
+                                                  int Threshold);
+void LLVMAddSimplifyLibCallsPass(LLVMPassManagerRef PM);
+void LLVMAddTailCallEliminationPass(LLVMPassManagerRef PM);
+void LLVMAddConstantPropagationPass(LLVMPassManagerRef PM);
+void LLVMAddDemoteMemoryToRegisterPass(LLVMPassManagerRef PM);
+void LLVMAddVerifierPass(LLVMPassManagerRef PM);
 
 ]]
+
+
+--[[
+
+Before doing this, try building a quick test program using llvm-c headers only
+To find out what is actually needed to avoid segfault.
+
+--]]
+C.LLVMInitializeX86TargetInfo()
+C.LLVMInitializeX86Target()
+C.LLVMInitializeX86TargetMC()
+C.LLVMLinkInJIT()
+
+local Ctx = C.LLVMGetGlobalContext()
 
 -- create a module:
 local M = C.LLVMModuleCreateWithName("test")
 
+local B = C.LLVMCreateBuilder()
 
+local DoubleTy = C.LLVMDoubleType()
+
+-- Make the function type:  double(double,double) etc.
+local DoublesTy1 = ffi.new("LLVMTypeRef[1]")
+DoublesTy1[0] = DoubleTy
+
+-- FunctionType *
+local FT = C.LLVMFunctionType(DoubleTy, DoublesTy1, 1, false)
+
+-- Function *
+local F = C.LLVMAddFunction(M, "foo", FT)
+C.LLVMSetLinkage(F, C.LLVMExternalLinkage)
+
+-- set parameters:
+local p0 = C.LLVMGetParam(F, 0)
+print(p0)
+
+local entry = C.LLVMAppendBasicBlock(F, "entry")
+C.LLVMPositionBuilderAtEnd(B, entry)
+local v0 = C.LLVMConstReal(DoubleTy, 0)
+C.LLVMBuildRet(B, p0)
 
 -- dump contents:
-C.LLVMDumpModule(M)
+C.LLVMDumpModule(M)	
+
+local EEptr = ffi.new("LLVMExecutionEngineRef[1]")
+local err = ffi.new("char *[1024]")		-- not quite right...
+assert(C.LLVMCreateJITCompilerForModule(EEptr, M, 1, err) == 0, "failed to create execution engine")
+local EE = EEptr[0]
+
+local ptr = C.LLVMGetPointerToGlobal(EE, F)
+print(ptr)
+
+local args = ffi.new("LLVMGenericValueRef[?]", 1)
+args[0] = C.LLVMCreateGenericValueOfFloat(DoubleTy, 10)
+local gv = C.LLVMRunFunction(EE, F, 1, args)
+print("result", C.LLVMGenericValueToFloat(DoubleTy, gv))
 
 -- cleanup:
 C.LLVMDisposeModule(M)
+
+--[[
+
+-- a quick test:
+--local R = ffi.new("LLVMPassRegistryRef")
+
+--C.LLVMInitializeCore(R)
+--C.LLVMInitializeTarget(R)
+
+
+
+
+print(ffi.string(err[0]))
+
+-- dies here:
+--
+
+
+
+--]]
