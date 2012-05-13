@@ -291,6 +291,19 @@ static int lua_sweep(lua_State * L) {
 	return 0;
 }
 
+// hack to enable working with LuaJIT FFI and lua_CFunction:
+static int make_function_box(lua_State * L) {
+	lua_newuserdata(L, sizeof(lua_CFunction *));
+	return 1;
+}	
+
+static int unbox_function_box(lua_State * L) {
+	lua_CFunction * f = (lua_CFunction *)lua_touserdata(L, 1);
+	int upvals = lua_gettop(L) - 1;
+	lua_pushcclosure(L, *f, upvals);
+	return 1;
+}
+
 static int lua_pointer(lua_State * L) {
 	if (lua_toboolean(L, 1)) {
 		lua_pushvalue(L, lua_upvalueindex(1));
@@ -334,6 +347,9 @@ extern "C" int luaopen_clang(lua_State *L) {
 		{ "SearchForAddressOfSymbol", SearchForAddressOfSymbol },
 		{ "AddSymbol", AddSymbol },
 		{ "sweep", lua_sweep },
+		
+		{ "make_function_box", make_function_box },
+		{ "unbox_function_box", unbox_function_box },
 		{ NULL, NULL }
 	};
 	luaL_register(L, libname, lib);
