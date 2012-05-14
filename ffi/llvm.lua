@@ -1051,7 +1051,7 @@ void LLVMAddVerifierPass(LLVMPassManagerRef PM);
 ]]
 ffi.cdef(header)
 
-if nil then
+if false then
 	-- generate metatype bindings by parsing the header for known types as first arguments:
 	local objs = { 
 		"Context", 
@@ -1072,7 +1072,7 @@ if nil then
 	
 	print("-- no modifications to metatables after this point:")
 	for i, obj in ipairs(objs) do
-		print(string.format('ffi.metatype(ffi.typeof("struct LLVMOpaque%s"), %s)\n', obj, obj))
+		print(string.format('ffi.metatype("struct LLVMOpaque%s", %s)\n', obj, obj))
 	end
 	os.exit()
 end
