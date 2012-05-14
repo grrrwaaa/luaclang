@@ -2,52 +2,23 @@ local clang = require "clang"
 local ffi = require "ffi"
 local lib = ffi.C
 local header = [[
-
-typedef struct lua_State lua_State;
-typedef int (*lua_CFunction) (lua_State *L);
-
-]] .. [[
-
 typedef int LLVMBool;
 
-typedef struct LLVMOpaqueContext LLVMOpaqueContext;
 typedef struct LLVMOpaqueContext *LLVMContextRef;
-
-typedef struct LLVMOpaqueModule LLVMOpaqueModule;
 typedef struct LLVMOpaqueModule *LLVMModuleRef;
-
-typedef struct LLVMOpaqueType LLVMOpaqueType;
 typedef struct LLVMOpaqueType *LLVMTypeRef;
-typedef struct LLVMOpaqueTypeHandle LLVMOpaqueTypeHandle;
 typedef struct LLVMOpaqueTypeHandle *LLVMTypeHandleRef;
-
-typedef struct LLVMOpaqueValue LLVMOpaqueValue;
 typedef struct LLVMOpaqueValue *LLVMValueRef;
-typedef struct LLVMOpaqueBasicBlock LLVMOpaqueBasicBlock;
 typedef struct LLVMOpaqueBasicBlock *LLVMBasicBlockRef;
-typedef struct LLVMOpaqueBuilder LLVMOpaqueBuilder;
 typedef struct LLVMOpaqueBuilder *LLVMBuilderRef;
-
-typedef struct LLVMOpaqueModuleProvider LLVMOpaqueModuleProvider;
 typedef struct LLVMOpaqueModuleProvider *LLVMModuleProviderRef;
-typedef struct LLVMOpaqueMemoryBuffer LLVMOpaqueMemoryBuffer;
 typedef struct LLVMOpaqueMemoryBuffer *LLVMMemoryBufferRef;
-typedef struct LLVMOpaquePassManager LLVMOpaquePassManager;
 typedef struct LLVMOpaquePassManager *LLVMPassManagerRef;
-typedef struct LLVMOpaquePassRegistry LLVMOpaquePassRegistry;
 typedef struct LLVMOpaquePassRegistry *LLVMPassRegistryRef;
-
-typedef struct LLVMOpaqueUse LLVMOpaqueUse;
 typedef struct LLVMOpaqueUse *LLVMUseRef;
-
-typedef struct LLVMOpaqueTargetData LLVMOpaqueTargetData;
 typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
-typedef struct LLVMStructLayout LLVMStructLayout;
 typedef struct LLVMStructLayout *LLVMStructLayoutRef;
-
-typedef struct LLVMOpaqueGenericValue LLVMOpaqueGenericValue;
 typedef struct LLVMOpaqueGenericValue *LLVMGenericValueRef;
-typedef struct LLVMOpaqueExecutionEngine LLVMOpaqueExecutionEngine;
 typedef struct LLVMOpaqueExecutionEngine *LLVMExecutionEngineRef;
 
 
@@ -1101,10 +1072,12 @@ if nil then
 	
 	print("-- no modifications to metatables after this point:")
 	for i, obj in ipairs(objs) do
-		print(string.format('ffi.metatype(ffi.typeof("LLVMOpaque%s"), %s)\n', obj, obj))
+		print(string.format('ffi.metatype(ffi.typeof("struct LLVMOpaque%s"), %s)\n', obj, obj))
 	end
 	os.exit()
 end
+
+local llvm = {}
 
 ---- METATYPES ----
 
@@ -1688,47 +1661,81 @@ ExecutionEngine.__index = ExecutionEngine
 
 -- <add methods here>
 
+function Builder:Call(F, outname, ...)
+	local args = llvm.ValueArray(...)
+	return self:BuildCall(F, args, select("#", ...), outname)
+end
 
-ffi.metatype(ffi.typeof("LLVMOpaqueContext"), Context)
-ffi.metatype(ffi.typeof("LLVMOpaqueModule"), Module)
-ffi.metatype(ffi.typeof("LLVMOpaqueType"), Type)
-ffi.metatype(ffi.typeof("LLVMOpaqueValue"), Value)
-ffi.metatype(ffi.typeof("LLVMOpaqueBasicBlock"), BasicBlock)
-ffi.metatype(ffi.typeof("LLVMOpaqueBuilder"), Builder)
-ffi.metatype(ffi.typeof("LLVMOpaqueModuleProvider"), ModuleProvider)
-ffi.metatype(ffi.typeof("LLVMOpaqueMemoryBuffer"), MemoryBuffer)
-ffi.metatype(ffi.typeof("LLVMOpaquePassManager"), PassManager)
-ffi.metatype(ffi.typeof("LLVMOpaquePassRegistry"), PassRegistry)
-ffi.metatype(ffi.typeof("LLVMOpaqueUse"), Use)
-ffi.metatype(ffi.typeof("LLVMOpaqueTargetData"), TargetData)
-ffi.metatype(ffi.typeof("LLVMOpaqueGenericValue"), GenericValue)
-ffi.metatype(ffi.typeof("LLVMOpaqueExecutionEngine"), ExecutionEngine)
+-- special case of creating lua_CFunction types and pushing on the current stack
+-- (a bit of an ugly hack...)
+function ExecutionEngine:GetLuaFunction(F)
+	-- allocate a lua_CFunction ** in C:
+	local bf = clang.make_function_box()
+	-- copy in the ffi'd function:
+	ffi.cast("void **", bf)[0] = self:GetPointerToGlobal(F)
+	-- use C to push this as a lua_CFunction:
+	-- stash the EE as an upvalue to prevent it being collected 
+	return clang.unbox_function_box(bf, self)
+end
+
+
+ffi.metatype("struct LLVMOpaqueContext", Context)
+ffi.metatype("struct LLVMOpaqueModule", Module)
+ffi.metatype("struct LLVMOpaqueType", Type)
+ffi.metatype("struct LLVMOpaqueValue", Value)
+ffi.metatype("struct LLVMOpaqueBasicBlock", BasicBlock)
+ffi.metatype("struct LLVMOpaqueBuilder", Builder)
+ffi.metatype("struct LLVMOpaqueModuleProvider", ModuleProvider)
+ffi.metatype("struct LLVMOpaqueMemoryBuffer", MemoryBuffer)
+ffi.metatype("struct LLVMOpaquePassManager", PassManager)
+ffi.metatype("struct LLVMOpaquePassRegistry", PassRegistry)
+ffi.metatype("struct LLVMOpaqueUse", Use)
+ffi.metatype("struct LLVMOpaqueTargetData", TargetData)
+ffi.metatype("struct LLVMOpaqueGenericValue", GenericValue)
+ffi.metatype("struct LLVMOpaqueExecutionEngine", ExecutionEngine)
 
 
 ---- END OF METATYPES ---
 
+-- initialize native target:
+lib.LLVMInitializeX86TargetInfo()
+lib.LLVMInitializeX86Target()
+lib.LLVMInitializeX86TargetMC()
 
----- CONSTRUCTORS ----
 
-function Context(name, Ctx)
+-- Friendly API:
+
+function llvm.Context(name, Ctx)
 	local o = lib.LLVMContextCreate()
 	ffi.gc(o, lib.LLVMContextDispose)
 	return o
 end
 
-function Module(name, Ctx)
+function llvm.Module(name, Ctx)
 	local o = Ctx and lib.LLVMModuleCreateWithNameInContext(name, Ctx) or lib.LLVMModuleCreateWithName(name)
 	ffi.gc(o, lib.LLVMDisposeModule)
 	return o
 end
 
-function Builder(Ctx)
+function llvm.FunctionType(ret, args, isvarargs)
+	local numargs = 1
+	if type(args) == "table" then numargs = #args end
+	local argsTypes = ffi.new("LLVMTypeRef[?]", numargs, args)
+	return lib.LLVMFunctionType(ret, argsTypes, numargs, isvarargs and true or false)
+end
+
+function llvm.ValueArray(...)
+	local numargs = select("#", ...)
+	return ffi.new("LLVMValueRef[?]", numargs, ...)
+end
+
+function llvm.Builder(Ctx)
 	local B = Ctx and lib.LLVMCreateBuilderInContext(Ctx) or lib.LLVMCreateBuilder()
 	ffi.gc(B, lib.LLVMDisposeBuilder)
 	return B
 end
 
-function ExecutionEngine(M, InlineLevel)
+function llvm.ExecutionEngine(M, InlineLevel)
 	local EEptr = ffi.new("LLVMExecutionEngineRef[1]")
 	local err = ffi.new("char *[1024]")		-- not quite right...
 	assert(lib.LLVMCreateJITCompilerForModule(EEptr, M, InlineLevel or 1, err) == 0, "failed to create execution engine")
@@ -1740,20 +1747,7 @@ function ExecutionEngine(M, InlineLevel)
 	return o
 end
 
----- END OF CONSTRUCTORS ----
-
--- initialize native target:
-lib.LLVMInitializeX86TargetInfo()
-lib.LLVMInitializeX86Target()
-lib.LLVMInitializeX86TargetMC()
-
-local llvm = {
-	Context = Context,
-	Module = Module,
-	Builder = Builder,
-	ExecutionEngine = ExecutionEngine,	
-}
-
+-- All other lib.LLVM* functions become llvm.*:
 setmetatable(llvm, {
 	__index = function(self, k)
 		local prefixed = "LLVM" .. k

@@ -1,4 +1,5 @@
-
+local ffi = require "ffi"
+local header = [[
 typedef long int ptrdiff_t;
 typedef long unsigned int size_t;
 typedef int wchar_t;
@@ -192,3 +193,6 @@ void (luaL_addlstring) (luaL_Buffer *B, const char *s, size_t l);
 void (luaL_addstring) (luaL_Buffer *B, const char *s);
 void (luaL_addvalue) (luaL_Buffer *B);
 void (luaL_pushresult) (luaL_Buffer *B);
+]]
+ffi.cdef(header)
+return header
