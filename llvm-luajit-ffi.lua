@@ -1,29 +1,66 @@
 local ffi = require "ffi"
+local clang = require "clang"
 local llvm = require "ffi.llvm"
+
+print(jit.version)
+
+local format = string.format
 --[[
 
 around 1ms for a lua_CFunction to multiply a number by 2.
-(but no optimizer, almost no assertions)
+around + 0.25ms for lua.h
+goes up to 3.5ms for 100 multiplies
+optimizer adds about 1ms more
 
-around + 0.5ms for lua.h
+for realistic code, we might expect around 10ms
 
-it would be nice to add functions / types lazily.
-	if (M:GetNamedFunction(name) == nil) then...
-	
-even better, it could return a constructor function for building a call to the function.
+however...
+the llvm version comes out around 4.6ms
+the clang version comes out around 4.9ms
 
-e.g.:
-
-local v1 = decls.lua_tonumber(L, int32Ty:ConstInt(1, true))
-
-	
-make a declarations table with an __index method to install them.
-the declarations table needs Module (and can get Context from Module)
-	
-or somehow pre-compile these into bitcode to preload?
-or re-use the base module/EE, if adding/removing modules is safe.
+Seems like the difference isn't worth it.
 	
 --]]
+
+-- olevel is an integer to specify -O0, -O1, -O2, -O3
+-- returns 0 if no changes made
+function optimize(M, olevel)
+	local pm = llvm.PassManager()
+	local pmb = llvm.PassManagerBuilder()
+	pmb:SetOptLevel(olevel or 2)
+	pmb:PopulateModulePassManager(pm)
+	return pm:RunPassManager(M)
+end
+
+function ctest(debug)
+	local code = {[[
+	extern "C" {
+		#include <lua.h>
+	}
+	]]}
+	
+	local F = { "extern \"C\" int foo(lua_State * L) {" }
+	F[#F+1] = "double v = lua_tonumber(L, 1);"
+	F[#F+1] = "double two = 2.;"
+	for i = 1, 100 do
+		F[#F+1] = "v = v * two;"
+	end
+	F[#F+1] = "lua_pushnumber(L, v);"
+	F[#F+1] = "return 1;"
+	F[#F+1] = "}"
+	code[#code + 1] = table.concat(F, "\n\t")
+	code = table.concat(code, "\n")
+	
+	cc = clang.Compiler()
+	cc:include("headers")
+	cc:compile(code)
+	cc:optimize("O2")
+	if debug then
+		cc:dump()
+	end
+	jit = cc:jit()
+	return jit:pushcfunction("foo")
+end
 
 -- TEST --
 function test(debug)
@@ -33,6 +70,7 @@ function test(debug)
 	local C = M:GetModuleContext()
 		
 	-- a bit of the lua.h API:
+	local C = M:GetModuleContext()
 	local doubleTy = C:DoubleTypeInContext()
 	local voidTy = C:VoidTypeInContext()
 	local voidPtrTy = voidTy:PointerType(0)
@@ -45,7 +83,6 @@ function test(debug)
 	local luaStatePtrTy = luaStateTy:PointerType(0)
 	local luaCFunctionTy = llvm.FunctionType(int32Ty, {luaStatePtrTy})
 	
-	--[[
 	local lua_close = M:AddFunction("lua_close", llvm.FunctionType(voidTy, {luaStatePtrTy}))
 	local lua_newthread = M:AddFunction("lua_newthread", llvm.FunctionType(luaStatePtrTy, {luaStatePtrTy}))
 	
@@ -67,9 +104,7 @@ function test(debug)
 	local lua_equal = M:AddFunction("lua_equal", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty, int32Ty}))
 	local lua_rawequal = M:AddFunction("lua_rawequal", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty, int32Ty}))
 	local lua_lessthan = M:AddFunction("lua_lessthan", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty, int32Ty}))
-	--]]
 	local lua_tonumber = M:AddFunction("lua_tonumber", llvm.FunctionType(doubleTy, {luaStatePtrTy, int32Ty}))
-	--[[
 	local lua_tointeger = M:AddFunction("lua_tointeger", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty}))
 	local lua_toboolean = M:AddFunction("lua_toboolean", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty}))
 	local lua_tolstring = M:AddFunction("lua_tolstring", llvm.FunctionType(strTy, {luaStatePtrTy, int32Ty, int32PtrTy}))
@@ -78,11 +113,9 @@ function test(debug)
 	local lua_touserdata = M:AddFunction("lua_touserdata", llvm.FunctionType(voidPtrTy, {luaStatePtrTy, int32Ty}))
 	local lua_tothread = M:AddFunction("lua_tothread", llvm.FunctionType(luaStatePtrTy, {luaStatePtrTy, int32Ty}))
 	local lua_topointer = M:AddFunction("lua_topointer", llvm.FunctionType(voidPtrTy, {luaStatePtrTy, int32Ty}))
-	--]]
 	
-	--local lua_pushnil = M:AddFunction("lua_pushnil", llvm.FunctionType(voidTy, {luaStatePtrTy}))
+	local lua_pushnil = M:AddFunction("lua_pushnil", llvm.FunctionType(voidTy, {luaStatePtrTy}))
 	local lua_pushnumber = M:AddFunction("lua_pushnumber", llvm.FunctionType(voidTy, {luaStatePtrTy, doubleTy}))
-	--[[
 	local lua_pushinteger = M:AddFunction("lua_pushinteger", llvm.FunctionType(voidTy, {luaStatePtrTy, int32Ty}))
 	local lua_pushlstring = M:AddFunction("lua_pushlstring", llvm.FunctionType(voidTy, {luaStatePtrTy, strTy, int32Ty}))
 	local lua_pushstring = M:AddFunction("lua_pushstring", llvm.FunctionType(voidTy, {luaStatePtrTy, strTy}))
@@ -90,8 +123,7 @@ function test(debug)
 	local lua_pushboolean = M:AddFunction("lua_pushboolean", llvm.FunctionType(voidTy, {luaStatePtrTy, int32Ty}))
 	local lua_pushlightuserdata = M:AddFunction("lua_pushlightuserdata", llvm.FunctionType(voidTy, {luaStatePtrTy, voidPtrTy}))
 	local lua_pushthread = M:AddFunction("lua_pushthread", llvm.FunctionType(int32Ty, {luaStatePtrTy}))
-	--]]
-	--[[
+	
 	local lua_gettable = M:AddFunction("lua_gettable", llvm.FunctionType(voidTy, {luaStatePtrTy, int32Ty}))
 	local lua_getfield = M:AddFunction("lua_getfield", llvm.FunctionType(voidTy, {luaStatePtrTy, int32Ty, strTy}))
 	local lua_rawget = M:AddFunction("lua_rawget", llvm.FunctionType(voidTy, {luaStatePtrTy, int32Ty}))
@@ -116,7 +148,7 @@ function test(debug)
 	local lua_gc = M:AddFunction("lua_gc", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty, int32Ty}))
 	local lua_error = M:AddFunction("lua_error", llvm.FunctionType(int32Ty, {luaStatePtrTy}))
 	local lua_next = M:AddFunction("lua_next", llvm.FunctionType(int32Ty, {luaStatePtrTy, int32Ty}))
-	--]]
+	
 	
 	-- create an instruction builder:
 	local B = llvm.Builder()
@@ -138,10 +170,14 @@ function test(debug)
 	local l1 = B:Call(lua_tonumber, "l1", L0, int32Ty:ConstInt(1, true))
 	-- multiply by 2:
 	local v0 = doubleTy:ConstReal(2)
-	local v1 = B:BuildFMul(l1, v0, "v1")
+	for i = 1, 200 do
+		 v0 = B:BuildFMul(l1, v0, format("v%d", i))
+	end
 	-- push result
-	local l1 = B:Call(lua_pushnumber, "l2", L0, v1) 
+	local l1 = B:Call(lua_pushnumber, "l2", L0, v0) 
 	B:BuildRet(int32Ty:ConstInt(1, true))
+	
+	optimize(M, 2)
 	
 	-- dump contents:
 	if debug then 
@@ -154,13 +190,13 @@ function test(debug)
 	return EE:GetLuaFunction(F)
 end
 
-function measure()
+function measure(f)
 	local uv = require "uv"
 	local t0 = uv.hrtime()
 	local runs = 1000
 	local tests = {}
 	for i = 1, runs do
-		tests[i] = coroutine.wrap(test)
+		tests[i] = coroutine.wrap(f)
 	end
 	for j = 1, 1 do
 		for i = 1, runs do
@@ -174,10 +210,14 @@ end
 
 local f = test(true)
 collectgarbage()
-print(f, f(123))
+print(f, f(0.9))
+
+local f = ctest(true)
+collectgarbage()
+print(f, f(0.9))
 
 
-measure()			
-
+measure(test)			
+measure(ctest)
 
 return llvm

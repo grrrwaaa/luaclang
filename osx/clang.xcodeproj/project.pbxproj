@@ -1013,6 +1013,12 @@
 		36F2202E155F84E90001F012 /* stub.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = stub.c; sourceTree = "<group>"; };
 		36F2202F155F85DF0001F012 /* stub.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = stub.h; sourceTree = "<group>"; };
 		36F220A0155F976A0001F012 /* simple.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = simple.cpp; sourceTree = "<group>"; };
+		36F7F8D51593DD1F00E031FF /* luaclang_ffi.cpp */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.cpp.cpp; path = luaclang_ffi.cpp; sourceTree = "<group>"; };
+		36F7F8D81593E28D00E031FF /* luajit_luaclang.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; name = luajit_luaclang.lua; path = ../luajit_luaclang.lua; sourceTree = "<group>"; };
+		36F7F8F61593E3FD00E031FF /* llvm-luajit-ffi.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; name = "llvm-luajit-ffi.lua"; path = "../llvm-luajit-ffi.lua"; sourceTree = SOURCE_ROOT; };
+		36F7F8F71593E3FD00E031FF /* test_clang.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; name = test_clang.lua; path = ../test_clang.lua; sourceTree = SOURCE_ROOT; };
+		36F7F8FE1593E42C00E031FF /* llvm.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = llvm.lua; sourceTree = "<group>"; };
+		36F7F9261593E79100E031FF /* compiler.lua */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.lua; path = compiler.lua; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1072,6 +1078,10 @@
 			isa = PBXGroup;
 			children = (
 				36A763AA1540A7890027BBB3 /* lakefile */,
+				36F7F8F71593E3FD00E031FF /* test_clang.lua */,
+				36F7F8F61593E3FD00E031FF /* llvm-luajit-ffi.lua */,
+				36F7F8D81593E28D00E031FF /* luajit_luaclang.lua */,
+				36F7F8FD1593E42C00E031FF /* ffi */,
 				3681F93714D0EB43007C8BF3 /* include */,
 				36886D7914C76C5500AB4605 /* headers */,
 				364002DD1091556800C4D35B /* src */,
@@ -1208,11 +1218,12 @@
 				36886CA314C766F800AB4605 /* Compiler.h */,
 				36886CA414C766F800AB4605 /* Compiler.cpp */,
 				36886CA614C7673900AB4605 /* lua_compiler.hpp */,
+				36F7F8D51593DD1F00E031FF /* luaclang_ffi.cpp */,
+				36F21F9F155F6F930001F012 /* llvm_export.cpp */,
 				364002DF1091557700C4D35B /* luaopen_clang.cpp */,
 				360A6B89115FF3170055970B /* luaopen_clang_llvm.cpp */,
 				36283D3A10B0F38E0082B68D /* clang.luadoc */,
 				360A6B8D115FF4B00055970B /* clang.llvm.luadoc */,
-				36F21F9F155F6F930001F012 /* llvm_export.cpp */,
 				36F2202F155F85DF0001F012 /* stub.h */,
 				36F2202E155F84E90001F012 /* stub.c */,
 				36F220A0155F976A0001F012 /* simple.cpp */,
@@ -2429,6 +2440,16 @@
 			);
 			path = Transforms;
 			sourceTree = "<group>";
+		};
+		36F7F8FD1593E42C00E031FF /* ffi */ = {
+			isa = PBXGroup;
+			children = (
+				36F7F8FE1593E42C00E031FF /* llvm.lua */,
+				36F7F9261593E79100E031FF /* compiler.lua */,
+			);
+			name = ffi;
+			path = ../ffi;
+			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 

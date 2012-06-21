@@ -15,12 +15,12 @@ typedef struct LLVMOpaqueModuleProvider *LLVMModuleProviderRef;
 typedef struct LLVMOpaqueMemoryBuffer *LLVMMemoryBufferRef;
 typedef struct LLVMOpaquePassManager *LLVMPassManagerRef;
 typedef struct LLVMOpaquePassRegistry *LLVMPassRegistryRef;
+typedef struct LLVMOpaquePassManagerBuilder *LLVMPassManagerBuilderRef;
 typedef struct LLVMOpaqueUse *LLVMUseRef;
 typedef struct LLVMOpaqueTargetData *LLVMTargetDataRef;
 typedef struct LLVMStructLayout *LLVMStructLayoutRef;
 typedef struct LLVMOpaqueGenericValue *LLVMGenericValueRef;
 typedef struct LLVMOpaqueExecutionEngine *LLVMExecutionEngineRef;
-
 
 enum LLVMByteOrdering { LLVMBigEndian, LLVMLittleEndian };
 
@@ -1048,6 +1048,38 @@ void LLVMAddConstantPropagationPass(LLVMPassManagerRef PM);
 void LLVMAddDemoteMemoryToRegisterPass(LLVMPassManagerRef PM);
 void LLVMAddVerifierPass(LLVMPassManagerRef PM);
 
+LLVMPassManagerBuilderRef LLVMPassManagerBuilderCreate(void);
+void LLVMPassManagerBuilderDispose(LLVMPassManagerBuilderRef PMB);
+
+void
+LLVMPassManagerBuilderSetOptLevel(LLVMPassManagerBuilderRef PMB,
+                                  unsigned OptLevel);
+void
+LLVMPassManagerBuilderSetSizeLevel(LLVMPassManagerBuilderRef PMB,
+                                   unsigned SizeLevel);
+void
+LLVMPassManagerBuilderSetDisableUnitAtATime(LLVMPassManagerBuilderRef PMB,
+                                            LLVMBool Value);
+void
+LLVMPassManagerBuilderSetDisableUnrollLoops(LLVMPassManagerBuilderRef PMB,
+                                            LLVMBool Value);
+void
+LLVMPassManagerBuilderSetDisableSimplifyLibCalls(LLVMPassManagerBuilderRef PMB,
+                                                 LLVMBool Value);
+void
+LLVMPassManagerBuilderUseInlinerWithThreshold(LLVMPassManagerBuilderRef PMB,
+                                              unsigned Threshold);
+void
+LLVMPassManagerBuilderPopulateFunctionPassManager(LLVMPassManagerBuilderRef PMB,
+                                                  LLVMPassManagerRef PM);
+void
+LLVMPassManagerBuilderPopulateModulePassManager(LLVMPassManagerBuilderRef PMB,
+                                                LLVMPassManagerRef PM);
+void LLVMPassManagerBuilderPopulateLTOPassManager(LLVMPassManagerBuilderRef PMB,
+                                                  LLVMPassManagerRef PM,
+                                                  bool Internalize,
+                                                  bool RunInliner);
+
 ]]
 ffi.cdef(header)
 
@@ -1581,6 +1613,18 @@ local PassManager = {
 }
 PassManager.__index = PassManager
 
+local PassManagerBuilder = {
+	SetOptLevel = lib.LLVMPassManagerBuilderSetOptLevel,
+	SetSizeLevel = lib.LLVMPassManagerBuilderSetSizeLevel,
+	SetDisableUnitAtATime = lib.LLVMPassManagerBuilderSetDisableUnitAtATime,
+	SetDisableUnrollLoops = lib.LLVMPassManagerBuilderSetDisableUnrollLoops,
+	SetDisableSimplifyLibCalls = lib.LLVMPassManagerBuilderSetDisableSimplifyLibCalls,
+	UseInlinerWithThreshold = lib.LLVMPassManagerBuilderUseInlinerWithThreshold,
+	PopulateFunctionPassManager = lib.LLVMPassManagerBuilderPopulateFunctionPassManager,
+	PopulateModulePassManager = lib.LLVMPassManagerBuilderPopulateModulePassManager,
+	PopulateLTOPassManager = lib.LLVMPassManagerBuilderPopulateLTOPassManager,
+}
+PassManagerBuilder.__index = PassManagerBuilder
 
 local PassRegistry = {
 	InitializeCore = lib.LLVMInitializeCore,
@@ -1661,6 +1705,18 @@ ExecutionEngine.__index = ExecutionEngine
 
 -- <add methods here>
 
+-- olevel is an integer to specify -O0, -O1, -O2, -O3
+-- returns zero if no changes were made
+function Module:optimize(olevel)
+	local pm = llvm.PassManager()
+	local pmb = llvm.PassManagerBuilder()
+	pmb:SetOptLevel(olevel or 2)
+	pmb:PopulateModulePassManager(pm)
+	
+	local modified = pm:RunPassManager(self)
+	return modified	
+end
+
 function Builder:Call(F, outname, ...)
 	local args = llvm.ValueArray(...)
 	return self:BuildCall(F, args, select("#", ...), outname)
@@ -1689,6 +1745,7 @@ ffi.metatype("struct LLVMOpaqueModuleProvider", ModuleProvider)
 ffi.metatype("struct LLVMOpaqueMemoryBuffer", MemoryBuffer)
 ffi.metatype("struct LLVMOpaquePassManager", PassManager)
 ffi.metatype("struct LLVMOpaquePassRegistry", PassRegistry)
+ffi.metatype("struct LLVMOpaquePassManagerBuilder", PassManagerBuilder)
 ffi.metatype("struct LLVMOpaqueUse", Use)
 ffi.metatype("struct LLVMOpaqueTargetData", TargetData)
 ffi.metatype("struct LLVMOpaqueGenericValue", GenericValue)
@@ -1744,6 +1801,18 @@ function llvm.ExecutionEngine(M, InlineLevel)
 	
 	local o = EEptr[0]
 	ffi.gc(o, DisposeExecutionEngine)
+	return o
+end
+
+function llvm.PassManager()
+	local o = lib.LLVMCreatePassManager()
+	ffi.gc(o, lib.LLVMDisposePassManager)
+	return o
+end
+
+function llvm.PassManagerBuilder()
+	local o = lib.LLVMPassManagerBuilderCreate()
+	ffi.gc(o, lib.LLVMPassManagerBuilderDispose)
 	return o
 end
 

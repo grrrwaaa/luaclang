@@ -306,7 +306,7 @@ void core() {
 	Linkage = LLVMGetLinkage(Val);
 	LLVMSetLinkage(Val, Linkage);
 	const char * str7 = LLVMGetSection(Val);
-	LLVMSetSection(Val, str);
+	LLVMSetSection(Val, str7);
 	Viz = LLVMGetVisibility(Val);
 	LLVMSetVisibility(Val, Viz);
 	u = LLVMGetAlignment(Val);
@@ -900,7 +900,6 @@ void core() {
 	LLVMAddBasicAliasAnalysisPass(PM);
 	
 	//LLVMAddDeadTypeEliminationPass(PM);
-	
 	
 	
 }
