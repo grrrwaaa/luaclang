@@ -72,12 +72,18 @@ LCJITRef lc_compiler_jit(LCCompilerRef C) {
 	return jit;
 }	
 
-void lc_jit_retain(LCJITRef jit) {
+int lc_jit_retain(LCJITRef jit) {
 	jit->retain();
+	return jit->refs();
 }	
 
-void lc_jit_release(LCJITRef jit) {
+int lc_jit_release(LCJITRef jit) {
 	jit->release();
+	return jit->refs();
+}
+
+int lc_jit_refs(LCJITRef jit) {
+	return jit->refs();
 }
 
 void * lc_jit_getfunctionptr(LCJITRef jit, const char * name) {

@@ -21,8 +21,9 @@ void	lc_compiler_dump(LCCompilerRef C);
 void	lc_compiler_optimize(LCCompilerRef C, const char * olevel);
 LCJITRef lc_compiler_jit(LCCompilerRef C);
 
-void	lc_jit_retain(LCJITRef jit);
-void	lc_jit_release(LCJITRef jit);
+int		lc_jit_retain(LCJITRef jit);
+int		lc_jit_release(LCJITRef jit);
+int		lc_jit_refs(LCJITRef jit);
 void *	lc_jit_getfunctionptr(LCJITRef jit, const char * name);
 
 void	lc_sweep();
@@ -66,6 +67,7 @@ ffi.metatype("struct Compiler", Compiler)
 local JIT = {
 	retain = lib.lc_jit_retain,
 	release = lib.lc_jit_release,
+	refs = lib.lc_jit_refs,
 	getfunctionptr = lib.lc_jit_getfunctionptr,
 }	
 JIT.__index = JIT

@@ -239,13 +239,21 @@ int lua_jit_getfunctionptr(lua_State *L) {
 int lua_jit_retain(lua_State *L) {
 	JIT *s = Glue<JIT>::checkto(L, 1);
 	s->retain();
-	return 0;
+	lua_pushinteger(L, s->refs());
+	return 1;
 }
 
 int lua_jit_release(lua_State *L) {
 	JIT *s = Glue<JIT>::checkto(L, 1);
 	s->release();
-	return 0;
+	lua_pushinteger(L, s->refs());
+	return 1;
+}
+
+int lua_jit_refs(lua_State *L) {
+	JIT *s = Glue<JIT>::checkto(L, 1);
+	lua_pushinteger(L, s->refs());
+	return 1;
 }
 
 
@@ -281,6 +289,7 @@ template<> void Glue<JIT>::usr_mt(lua_State * L) {
 		{ "getfunctionptr", lua_jit_getfunctionptr },
 		{ "retain", lua_jit_retain },
 		{ "release", lua_jit_release },
+		{ "refs", lua_jit_refs },
 		{ NULL, NULL}
 	};
 	Glue<JIT>::usr_attr_mt(L, methods);
