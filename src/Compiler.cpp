@@ -62,6 +62,12 @@
 #include "llvm/Type.h"
 //#include "llvm/ValueSymbolTable.h"
 
+//#define EE_LOCK() EE->lock.acquire()
+//#define EE_UNLOCK() EE->lock.release()
+
+#define EE_LOCK() 
+#define EE_UNLOCK() 
+
 #include <stdio.h>
 
 using namespace clang;
@@ -488,7 +494,9 @@ JIT * Compiler :: jit() {
 		}
 		
 		// initialize the statics:
+		EE_LOCK();
 		EE->runStaticConstructorsDestructors(mImpl->module, false);
+		EE_UNLOCK();
 		
 		// create JIT and transfer ownership of module to it:
 		JIT * jit = new JIT;
@@ -524,7 +532,9 @@ void JIT :: unjit() {
 //			EE->updateGlobalMapping(iter, NULL);
 //		}
 		
-		EE->removeModule(mImpl->module);	
+		EE_LOCK();
+		EE->removeModule(mImpl->module);
+		EE_UNLOCK();	
 		delete mImpl->module;
 		delete mImpl;
 		mImpl = 0;
@@ -541,7 +551,10 @@ void * JIT :: getfunctionptr(std::string funcname) {
 		llvm::StringRef fname = llvm::StringRef(funcname);
 		llvm::Function * f = mImpl->module->getFunction(fname);
 		if (f) {
-			return EE->getPointerToFunction(f);
+			EE_LOCK();
+			void * fptr = EE->getPointerToFunction(f);
+			EE_UNLOCK();
+			return fptr;
 		}
 	}
 	return NULL;
@@ -550,7 +563,10 @@ void * JIT :: getglobalptr(std::string globalname) {
 	if (valid()) {
 		const llvm::GlobalVariable * GV = mImpl->module->getGlobalVariable(globalname);
 		if (GV) {
-			return EE->getOrEmitGlobalVariable(GV);
+			EE_LOCK();
+			void * ptr = EE->getOrEmitGlobalVariable(GV);
+			EE_UNLOCK();
+			return ptr;
 		} else {
 			printf("global %s not found\n", globalname.data());
 		}

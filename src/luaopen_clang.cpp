@@ -60,6 +60,7 @@ int lua_compiler_compile(lua_State *L) {
 //			
 //		);
 		if (!s->compile(string(lua::to<const char *>(L, 2)), string(luaL_optstring(L, 3, "untitled")))) {
+			
 			luaL_error(L, "Compiler.compiler: compilation errors");
 		}
 	}
@@ -236,6 +237,20 @@ int lua_jit_getfunctionptr(lua_State *L) {
 	return 0;
 }
 
+int lua_jit_getglobalptr(lua_State *L) {
+	JIT *s = Glue<JIT>::checkto(L, 1);
+	if(lua::is<const char *>(L, 2)) {
+		void * f = s->getglobalptr(
+			string(lua::to<const char *>(L, 2))
+		);
+		if(f) {
+			lua_pushlightuserdata(L, f);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 int lua_jit_retain(lua_State *L) {
 	JIT *s = Glue<JIT>::checkto(L, 1);
 	s->retain();
@@ -287,6 +302,7 @@ template<> void Glue<JIT>::usr_mt(lua_State * L) {
 		//{ "dump", lua_jit_dump },
 		{ "pushcfunction", lua_jit_pushcfunction },
 		{ "getfunctionptr", lua_jit_getfunctionptr },
+		{ "getglobalptr", lua_jit_getglobalptr },
 		{ "retain", lua_jit_retain },
 		{ "release", lua_jit_release },
 		{ "refs", lua_jit_refs },
@@ -326,7 +342,7 @@ static int lua_pointer(lua_State * L) {
 	DynamicLibrary:
 */
 #pragma mark DynamicLibrary
-int LoadLibraryPermanently(lua_State * L) {
+int load_library(lua_State * L) {
 	const char * filename = luaL_checkstring(L, 1);
 	std::string ErrMsg;
 	bool res = Compiler::loadLibrary(filename, ErrMsg);
@@ -335,13 +351,13 @@ int LoadLibraryPermanently(lua_State * L) {
 	return 2;
 }
 
-int SearchForAddressOfSymbol(lua_State * L) {
+int find_symbol(lua_State * L) {
 	const char * symbolName = luaL_checkstring(L, 1);
 	lua_pushlightuserdata(L, Compiler::findSymbol(symbolName));
 	return 1;
 } 
 
-int AddSymbol(lua_State * L) {
+int add_symbol(lua_State * L) {
 	const char * symbolName = luaL_checkstring(L, 1);
 	void * symbolValue = lua_touserdata(L, 2);
 	Compiler::addSymbol(symbolName, symbolValue);
@@ -352,9 +368,10 @@ extern "C" int luaopen_clang(lua_State *L) {
 	const char * libname = lua_tostring(L, 1);
 	
 	struct luaL_reg lib[] = {
-		{ "LoadLibraryPermanently", LoadLibraryPermanently },
-		{ "SearchForAddressOfSymbol", SearchForAddressOfSymbol },
-		{ "AddSymbol", AddSymbol },
+		{ "load_library", load_library },
+		{ "find_symbol", find_symbol },
+		{ "add_symbol", add_symbol },
+		
 		{ "sweep", lua_sweep },
 		
 		{ "make_function_box", make_function_box },
